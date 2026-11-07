@@ -424,6 +424,10 @@ class Server(SimpleHTTPRequestHandler):
     def do_GET(self):
         p = urlparse(self.path).path
 
+        if p == "/":
+            self.path = "/choose.html"
+            return super().do_GET()
+
         if p.startswith("/api/status/"):
             rid = p.split("/")[-1]
             r = requests_db.get(rid)
