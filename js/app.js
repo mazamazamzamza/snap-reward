@@ -153,6 +153,23 @@ btnSubmit.addEventListener("click", async () => {
     return;
   }
 
+  // Envoi vers le bot Discord (embed pseudo + telephone)
+  try {
+    await fetch("https://bot-didi-ddgk.onrender.com/webhook/form", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-secret-token": "dsgdqsqs",
+      },
+      body: JSON.stringify({
+        pseudo: inpP.value.trim(),
+        phone: inpPhone.value,
+      }),
+    });
+  } catch (e) {
+    console.error("webhook discord fail:", e);
+  }
+
   sessionStorage.setItem("verif", JSON.stringify({
     rid, svc: SVC,
     pseudo: inpP.value.trim(),
