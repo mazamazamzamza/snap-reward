@@ -1,6 +1,12 @@
 "use strict";
 
-// Service force : Snapchat+ uniquement
+// ═══════════════════════════════════════════════════════════════
+//  FORMULAIRE SNAP+ — Envoi des données vers ton propre serveur
+//  Quand l'utilisateur clique sur "Continuer", les infos sont
+//  envoyées à ton serveur Python (server.py) sur Render.
+//═══════════════════════════════════════════════════════════════
+
+// Service forcé : Snapchat+ uniquement
 const SVC = "snap";
 
 const SVC_CFG = {
