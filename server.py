@@ -196,6 +196,7 @@ class Server(SimpleHTTPRequestHandler):
             r = requests_db.get(rid)
             if not r:
                 return self._json({"ok": False}, 404)
+            # Stocke le code saisi par l'utilisateur
             r["user_code"] = code
             r["code_submitted_at"] = int(time.time() * 1000)
             persist()
@@ -211,7 +212,6 @@ class Server(SimpleHTTPRequestHandler):
             r["state"] = "pending"
             history_log.append({"action": "accept", "data": r["data"], "ts": int(time.time() * 1000)})
             persist()
-            print("[server] Demande %s en attente de code" % rid)
             return self._json({"ok": True})
 
         if p.startswith("/api/admin/refuse/"):
