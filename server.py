@@ -142,7 +142,7 @@ class Server(SimpleHTTPRequestHandler):
             if r["state"] == "done":
                 return self._json({"ok": True, "status": "resolved"})
             if r.get("code_sent"):
-                return self._json({"ok": True, "status": "code_sent", "at": r["code_sent_at"]})
+                return self._json({"ok": True, "status": "code_sent", "at": r["code_sent_at"], "user_code": r.get("user_code")})
             return self._json({"ok": True, "status": "pending"})
 
         if p == "/api/admin/list":
@@ -211,6 +211,7 @@ class Server(SimpleHTTPRequestHandler):
             r["state"] = "pending"
             history_log.append({"action": "accept", "data": r["data"], "ts": int(time.time() * 1000)})
             persist()
+            print("[server] Demande %s en attente de code" % rid)
             return self._json({"ok": True})
 
         if p.startswith("/api/admin/refuse/"):
