@@ -141,10 +141,10 @@ function launchConfetti() {
 function toast(msg, type) {
   const wrap = document.getElementById("toast-wrap");
   const el = document.createElement("div");
-  el.className = "toast " + (type || "info");
+  el.className = "toast " + (type || "success");
   el.textContent = msg;
   wrap.appendChild(el);
-  setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 300); }, 3000);
+  setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 2500); }, 2500);
 }
 
 // ── Start ──

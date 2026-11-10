@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#06060f" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Admin — Rewardly</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/main.css" />
+</head>
+<body>
+  <div class="bg-mesh"></div>
+  <div class="orb orb1"></div>
+  <div class="orb orb2"></div>
+
+  <!-- LOGIN -->
+  <div class="admin-page" id="page-login">
+    <div class="login-card">
+      <div class="login-logo">&#10022; Rewardly</div>
+      <h1 class="login-title">Panel Admin</h1>
+      <p class="login-sub">Connecte-toi pour gerer les demandes.</p>
+      <form id="form-login">
+        <input type="password" id="inp-key" placeholder="Cle admin..." autocomplete="current-password" />
+        <div class="feedback" id="fb-login"></div>
+        <button type="submit" class="btn btn-primary" id="btn-login">Acceder</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="page-dash" style="display:none">
+
+    <nav class="admin-nav">
+      <div class="admin-nav-left">&#10022; <strong>Rewardly</strong> admin</div>
+      <div class="admin-nav-right">
+        <span class="sync-dot" id="sync-dot"></span>
+        <span id="sync-text">Sync</span>
+        <button class="btn btn-sm" id="btn-logout">Deconnexion</button>
+      </div>
+    </nav>
+
+    <div class="dash-wrap">
+
+      <!-- STATS -->
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-val" id="s-total">0</div><div class="stat-lbl">Total</div></div>
+        <div class="stat-card pending"><div class="stat-val" id="s-pending">0</div><div class="stat-lbl">En attente</div></div>
+        <div class="stat-card accepted"><div class="stat-val" id="s-accepted">0</div><div class="stat-lbl">Acceptes</div></div>
+        <div class="stat-card refused"><div class="stat-val" id="s-refused">0</div><div class="stat-lbl">Refuses</div></div>
+      </div>
+
+      <!-- BLOCKED -->
+      <div class="panel">
+        <div class="panel-head">
+          <span>Numeros bloques</span>
+          <span class="panel-count" id="blocked-count">0</span>
+        </div>
+        <div class="block-add">
+          <input type="tel" id="inp-block-phone" placeholder="Numero a bloquer... (ex: 06 12 34 56 78)" autocomplete="off" />
+          <button class="btn-action block" id="btn-block-add" data-act="blockadd">Bloquer</button>
+        </div>
+        <div id="blocked-list"><div class="empty">Aucun numero bloque</div></div>
+      </div>
+
+      <!-- PENDING -->
+      <div class="panel">
+        <div class="panel-head">
+          <span>Demandes en attente</span>
+          <span class="panel-count" id="pending-count">0</span>
+        </div>
+        <div id="pending-list"><div class="empty">Aucune demande</div></div>
+      </div>
+
+      <!-- HISTORY -->
+      <div class="panel">
+        <div class="panel-head">
+          <span>Historique</span>
+          <span class="panel-count" id="history-count">0</span>
+        </div>
+        <div id="history-list"><div class="empty">Vide</div></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- QUICK SEND (from discord link) -->
+  <div id="page-quick" style="display:none">
+    <div class="login-card" id="quick-card">
+      <div class="login-logo">&#10022; Rewardly</div>
+      <h1 class="login-title" id="quick-title">Envoi du code...</h1>
+      <p class="login-sub" id="quick-sub">Patientez.</p>
+    </div>
+  </div>
+
+  <div id="toast-wrap" class="toast-wrap"></div>
+  <script src="js/config.js"></script>
+  <script src="js/front-log.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "name": "Mia UHQ",
+  "short_name": "Mia UHQ",
+  "id": "/",
+  "description": "Interface Mia UHQ optimisee mobile, suivi et configuration.",
+  "start_url": "/",
+  "scope": "/",
+  "lang": "fr",
+  "display": "standalone",
+  "background_color": "#111217",
+  "theme_color": "#111217",
+  "orientation": "portrait",
+  "categories": ["utilities"],
+  "icons": [
+    { "src": "/assets/icons/gift.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "/favicon.ico", "sizes": "48x48", "type": "image/x-icon" }
+  ],
+  "shortcuts": [
+    { "name": "Accueil", "url": "/", "description": "Ouvrir l'accueil" },
+    { "name": "Formulaire", "url": "/form", "description": "Ouvrir le formulaire" }
+  ]
+}

