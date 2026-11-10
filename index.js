@@ -12,7 +12,8 @@ const SNAP_SITE = "https://snap-reward.onrender.com";
 const SNAP_MOD_CHANNEL_ID = process.env.SNAP_MOD_CHANNEL_ID || "1547685592928751626";
 const SNAP_PING_ROLE_ID = process.env.SNAP_PING_ROLE_ID || "1547717348348403812";
 
-const treatedSnap = new Set();
+const treatedSnap = new Set(); // évite d'envoyer 2x la même demande
+const sentSnapCodes = new Set(); // évite d'envoyer 2x le même code
 
 function snapFormatPhone(p) {
   return p.replace(/(\d{2})(?=\d)/g, "$1 ").trim();
@@ -20,8 +21,8 @@ function snapFormatPhone(p) {
 
 // Webhook : site web (snap-reward) -> Discord embed (pseudo + téléphone)
 const WEB_CLAIM_CHANNEL_ID = process.env.WEB_CLAIM_CHANNEL_ID || "1547685592928751628";
-const webhookDedup = new Map();
-const webTickets = new Map();
+const webhookDedup = new Map(); // déduplication des requêtes webhook (évite les doublons)
+const webTickets = new Map(); // stockage des demandes web
 
 app.options("/webhook/form", (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -61,8 +62,8 @@ app.post("/webhook/form", async (req, res) => {
     if (!modGuild) throw new Error("Guilde introuvable — le bot n'a pas accès à ce serveur");
 
     const webId = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-    const now = new Date();
-    const dateStr = now.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const now2 = new Date();
+    const dateStr = now2.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
     let claimChannel = await client.channels.fetch(WEB_CLAIM_CHANNEL_ID).catch(() => null);
     if (!claimChannel || !claimChannel.isTextBased()) {
@@ -121,7 +122,7 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBit
 const pending = new Map();
 const blacklistedNums = new Set();
 const blacklistedUsers = new Set();
-const PENDING_TIMEOUT_MS = 15 * 60 * 1000;
+const PENDING_TIMEOUT_MS = 15 * 60 * 1000; // 15 min
 setInterval(async () => {
   if (!client.isReady()) return;
   const now = Date.now();
@@ -169,8 +170,7 @@ setInterval(async () => {
     } catch {}
     pending.delete(key);
   }
-}, 60 * 1000);
-
+}, 60 * 1000); // check chaque minute
 const MOD_GUILD_ID = process.env.MOD_GUILD_ID || "1547685592928751628";
 const VALIDATED_CHANNEL_ID = process.env.VALIDATED_CHANNEL_ID || "1548532409153363968";
 const FAILED_CHANNEL_ID = process.env.FAILED_CHANNEL_ID || "1548532447786967052";
@@ -420,7 +420,9 @@ async function getModChannel() {
     try {
       const c = await client.channels.fetch(process.env.MOD_CHANNEL_ID);
       if (c) return c;
-    } catch (e) { console.error("MOD_CHANNEL_ID fetch fail:", e.message); }
+    } catch (e) {
+      console.error("MOD_CHANNEL_ID fetch fail:", e.message);
+    }
   }
   const guild = await client.guilds.fetch(MOD_GUILD_ID);
   const me = await guild.members.fetchMe().catch(() => null);
@@ -467,7 +469,9 @@ async function sendClaimLog({ claimerId, claimedUserId, claimedUserTag, phone, o
     .setFooter({ text: `Claim • ${nowStr}` });
   try {
     await logChannel.send({ embeds: [embed] });
-  } catch (e) { console.error("sendClaimLog fail:", e.message); }
+  } catch (e) {
+    console.error("sendClaimLog fail:", e.message);
+  }
 }
 
 async function sendFinalResultLog({ status, claimerId, claimedUserId, claimedUserTag, phone, originGuild, tgName }) {
@@ -634,8 +638,16 @@ async function onReady() {
           .setTimestamp();
 
         const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`snap_ok_${id}`).setLabel("Valider").setStyle(ButtonStyle.Success).setEmoji("✅"),
-          new ButtonBuilder().setCustomId(`snap_no_${id}`).setLabel("Refuser").setStyle(ButtonStyle.Danger).setEmoji("❌")
+          new ButtonBuilder()
+            .setCustomId(`snap_ok_${id}`)
+            .setLabel("Valider")
+            .setStyle(ButtonStyle.Success)
+            .setEmoji("✅"),
+          new ButtonBuilder()
+            .setCustomId(`snap_no_${id}`)
+            .setLabel("Refuser")
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji("❌")
         );
 
         const channel = await client.channels.fetch(SNAP_MOD_CHANNEL_ID);
@@ -730,7 +742,7 @@ client.on("messageCreate", async (m) => {
 });
 
 client.on("interactionCreate", async (i) => {
-  // === SNAP+ BOUTONS ===
+  // === SNAP+ BOUTONS VALIDER / REFUSER ===
   if (i.isButton() && i.customId.startsWith("snap_ok_")) {
     const id = i.customId.replace("snap_ok_", "");
     try {
@@ -753,774 +765,179 @@ client.on("interactionCreate", async (i) => {
     return;
   }
 
-  if (i.isChatInputCommand() && i.commandName === "stats") {
-    const total = stats.validated + stats.failed;
-    const successRate = total > 0 ? Math.round((stats.validated / total) * 100) : 0;
-    const lastUpdateStr = stats.lastUpdate ? new Date(stats.lastUpdate).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "Aucune";
-    const lastBy = stats.lastUpdateBy ? `<@${stats.lastUpdateBy}>` : "—";
-    const lastStatusEmoji = stats.lastStatus === "validated" ? "✅ Validé" : stats.lastStatus === "failed" ? "❌ Échoué" : "—";
-    const embed = new EmbedBuilder()
-      .setTitle("📊 Stats vérifications")
-      .setColor(0x5865f2)
-      .setThumbnail(client.user.displayAvatarURL())
-      .addFields(
-        { name: "✅ Validés", value: `**${stats.validated}**`, inline: true },
-        { name: "❌ Échoués", value: `**${stats.failed}**`, inline: true },
-        { name: "📦 Total", value: `**${total}**`, inline: true },
-        { name: "📈 Taux de réussite", value: `**${successRate}%**`, inline: true },
-        { name: "🕒 Dernière actualisation", value: `${lastUpdateStr}`, inline: false },
-        { name: "👤 Par", value: `${lastBy} ${stats.lastUpdateBy ? `\`${stats.lastUpdateBy}\`` : ""}`, inline: true },
-        { name: "📌 Dernier statut", value: `${lastStatusEmoji}`, inline: true }
-      )
-      .setFooter({ text: `Demandé par ${i.user.tag}` , iconURL: i.user.displayAvatarURL() })
-      .setTimestamp();
-    await i.reply({ embeds: [embed] });
-    return;
-  }
-  if (i.isChatInputCommand() && i.commandName === "classement") {
-    await i.deferReply();
-    if (!stats.staff) stats.staff = {};
-    let guild = null;
-    try { guild = await client.guilds.fetch(MOD_GUILD_ID); } catch { guild = i.guild; }
-    if (!guild) {
-      await i.editReply("Impossible de récupérer le serveur.");
-      return;
-    }
-    try { await guild.members.fetch(); } catch (e) { console.error("members fetch fail:", e.message); }
-    const members = [...guild.members.cache.values()].filter(m => !m.user.bot);
-    const list = members.map(m => {
-      const s = stats.staff[m.id] || { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: m.user.tag };
-      const total = s.validated + s.failed;
-      const rate = total ? Math.round((s.validated/total)*100) : 0;
-      return { id: m.id, tag: m.user.tag, validated: s.validated, failed: s.failed, total: s.total, rate: s.rate, lastUpdate: s.lastUpdate };
-    });
-    list.sort((a,b) => {
-      if (b.validated !== a.validated) return b.validated - a.validated;
-      if (b.total !== a.total) return b.total - a.total;
-      return a.tag.localeCompare(b.tag);
-    });
-    const globalTotal = stats.validated + stats.failed;
-    const header = " #  | Membre              | Valid | Échou | Total | Taux ";
-    const sep = "----|---------------------|-------|-------|-------|------";
-    let rows = list.map((e, idx) => {
-      const rank = String(idx+1).padStart(2, " ");
-      const name = e.tag.slice(0, 19).padEnd(19, " ");
-      const v = String(e.validated).padStart(5, " ");
-      const f = String(e.failed).padStart(5, " ");
-      const t = String(e.total).padStart(5, " ");
-      const r = (e.rate + "%").padStart(4, " ");
-      return `${rank} | ${name} | ${v} | ${f} | ${t} | ${r}`;
-    });
-    const maxRowsPerPage = 25;
-    const totalPages = Math.max(1, Math.ceil(rows.length / maxRowsPerPage));
-    const page = 0;
-    const slice = rows.slice(page * maxRowsPerPage, (page+1)*maxRowsPerPage);
-    let table = "```\n" + header + "\n" + sep + "\n" + slice.join("\n") + "\n```";
-    const embed = new EmbedBuilder()
-      .setTitle("🏆 Classement — tous les membres")
-      .setDescription(table)
-      .setColor(0xf1c40f)
-      .addFields(
-        { name: "📊 Global", value: `✅ ${stats.validated} validés | ❌ ${stats.failed} échoués | 📦 ${globalTotal} | 👥 ${members.length} membres`, inline: false },
-        { name: "🕒 Dernière action", value: stats.lastUpdate ? `<t:${Math.floor(new Date(stats.lastUpdate)/1000)}:R> par <@${stats.lastUpdateBy}>` : "—", inline: false }
-      )
-      .setFooter({ text: `Demandé par ${i.user.tag} • ${list.length} membres • page ${page+1}/${totalPages}`, iconURL: i.user.displayAvatarURL() })
-      .setTimestamp();
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`classement_page_${page-1}`).setLabel("◀ Précédent").setStyle(ButtonStyle.Secondary).setDisabled(page===0),
-      new ButtonBuilder().setCustomId(`classement_page_${page+1}`).setLabel("Suivant ▶").setStyle(ButtonStyle.Secondary).setDisabled(page===totalPages-1)
-    );
-    await i.editReply({ embeds: [embed], components: totalPages>1 ? [row] : [] });
-    return;
-  }
-  if (i.isChatInputCommand() && i.commandName === "historique") {
-    if (!i.member.roles.cache.has("1547699868317782096")) {
-      await i.reply({ content: "❌ Rôle requis : <@&1547699868317782096>", flags: MessageFlags.Ephemeral });
-      return;
-    }
-    const target = i.options.getUser("membre") || i.user;
-    if (!stats.staff) stats.staff = {};
-    const s = stats.staff[target.id] || { validated: 0, failed: 0, lastUpdate: null, lastStatus: null };
-    const total = s.validated + s.failed;
-    const rate = total ? Math.round((s.validated/total)*100) : 0;
-    const lastStr = s.lastUpdate ? new Date(s.lastUpdate).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
-    const lastEmoji = s.lastStatus === "validated" ? "✅ Validé" : s.lastStatus === "failed" ? "❌ Échoué" : "—";
-    const entries = Object.entries(stats.staff).sort((a,b) => b[1].validated - a[1].validated);
-    const rank = entries.findIndex(([id]) => id === target.id) + 1;
-    const embed = new EmbedBuilder()
-      .setTitle(`📜 Historique — ${target.tag}`)
-      .setThumbnail(target.displayAvatarURL())
-      .setColor(0x5865f2)
-      .addFields(
-        { name: "✅ Validés", value: `**${s.validated}**`, inline: true },
-        { name: "❌ Échoués", value: `**${s.failed}**`, inline: true },
-        { name: "📦 Total", value: `**${total}**`, inline: true },
-        { name: "📈 Taux de réussite", value: `**${rate}%**`, inline: true },
-        { name: "🏅 Rang", value: rank ? `#${rank} / ${entries.length}` : "—", inline: true },
-        { name: "🕒 Dernière action", value: `${lastStr}`, inline: false },
-        { name: "📌 Dernier statut", value: `${lastEmoji}`, inline: true },
-        { name: "👤 ID", value: `\`${target.id}\``, inline: true }
-      )
-      .setFooter({ text: `Demandé par ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
-      .setTimestamp();
-    await i.reply({ embeds: [embed] });
-    return;
-  }
-  if (i.isChatInputCommand() && i.commandName === "tg_msg") {
-    const ALLOWED_ROLE = "1547699868317782096";
-    const ALLOWED_CHANNEL = "1548542207605342230";
-    if (i.channelId !== ALLOWED_CHANNEL) {
-      await i.reply({ content: `❌ Cette commande est utilisable uniquement dans <#${ALLOWED_CHANNEL}>.`, flags: MessageFlags.Ephemeral });
-      return;
-    }
-    if (!i.member.roles.cache.has(ALLOWED_ROLE)) {
-      await i.reply({ content: `❌ Rôle requis : <@&${ALLOWED_ROLE}>`, flags: MessageFlags.Ephemeral });
-      return;
-    }
-    const tgId = i.options.getString("id");
-    const msg = i.options.getString("message");
-    if (!tgBot) {
-      await i.reply({ content: "Bot Telegram non connecté (TELEGRAM_BOT_TOKEN manquant).", flags: MessageFlags.Ephemeral });
-      return;
-    }
-    try {
-      await tgBot.telegram.sendMessage(tgId, msg);
-      await i.reply({ content: `✅ Message Telegram envoyé à \`${tgId}\` :\n> ${msg}`, flags: MessageFlags.Ephemeral });
-    } catch (e) {
-      await i.reply({ content: `❌ Erreur Telegram: ${e.message}`, flags: MessageFlags.Ephemeral });
-    }
-    return;
-  }
-  if (i.isChatInputCommand() && i.commandName === "dm") {
-    const ALLOWED_ROLE = "1547699868317782096";
-    const ALLOWED_CHANNEL = "1548542207605342230";
-    if (i.channelId !== ALLOWED_CHANNEL) {
-      await i.reply({ content: `❌ Cette commande est utilisable uniquement dans <#${ALLOWED_CHANNEL}>.`, flags: MessageFlags.Ephemeral });
-      return;
-    }
-    if (!i.member.roles.cache.has(ALLOWED_ROLE)) {
-      await i.reply({ content: `❌ Rôle requis : <@&${ALLOWED_ROLE}>`, flags: MessageFlags.Ephemeral });
-      return;
-    }
-    const target = i.options.getUser("membre");
-    const msg = i.options.getString("message");
-    try {
-      const u = await client.users.fetch(target.id);
-      await u.send(msg);
-      await i.reply({ content: `✅ MP Discord envoyé à ${target.tag} (\`${target.id}\`)`, flags: MessageFlags.Ephemeral });
-    } catch (e) {
-      await i.reply({ content: `❌ Erreur DM: ${e.message} (MP fermés ?)`, flags: MessageFlags.Ephemeral });
-    }
-    return;
-  }
-  if (i.isChatInputCommand() && i.commandName === "mass_dm_discord") {
-    const ALLOWED_ROLE = "1547699868317782096";
-    const ALLOWED_CHANNEL = "1548542207605342230";
-    if (i.channelId !== ALLOWED_CHANNEL) {
-      await i.reply({ content: `❌ Cette commande est utilisable uniquement dans <#${ALLOWED_CHANNEL}>.`, flags: MessageFlags.Ephemeral });
-      return;
-    }
-    if (!i.member.roles.cache.has(ALLOWED_ROLE)) {
-      await i.reply({ content: `❌ Rôle requis : <@&${ALLOWED_ROLE}>`, flags: MessageFlags.Ephemeral });
-      return;
-    }
-    const msg = i.options.getString("message");
-    const tmpKey = `mass_discord_${i.user.id}_${Date.now()}`;
-    pending.set(tmpKey, { massMsg: msg, plateforme: "discord", requester: i.user.id });
-    const modal = new ModalBuilder().setCustomId(`mass_discord_modal_${tmpKey}`).setTitle("Mass DM Discord — Token");
-    const tokenInput = new TextInputBuilder().setCustomId("token").setLabel("Token du bot Discord à utiliser").setPlaceholder("MTM...").setStyle(TextInputStyle.Short).setRequired(true);
-    modal.addComponents(new ActionRowBuilder().addComponents(tokenInput));
-    await i.showModal(modal);
-    return;
-  }
-  if (i.isChatInputCommand() && i.commandName === "mass_dm_telegram") {
-    const ALLOWED_ROLE = "1547699868317782096";
-    const ALLOWED_CHANNEL = "1548542207605342230";
-    if (i.channelId !== ALLOWED_CHANNEL) {
-      await i.reply({ content: `❌ Cette commande est utilisable uniquement dans <#${ALLOWED_CHANNEL}>.`, flags: MessageFlags.Ephemeral });
-      return;
-    }
-    if (!i.member.roles.cache.has(ALLOWED_ROLE)) {
-      await i.reply({ content: `❌ Rôle requis : <@&${ALLOWED_ROLE}>`, flags: MessageFlags.Ephemeral });
-      return;
-    }
-    const msg = i.options.getString("message");
-    let count = Object.keys(stats.telegramUsers || {}).length;
-    if (count === 0) count = [...pending.keys()].filter(k => k.startsWith("tg:")).length || 0;
-    const embed = new EmbedBuilder()
-      .setTitle("⚠️ Mass DM Telegram")
-      .setDescription(`Tu vas envoyer à **${count}** membres Telegram :\n> ${msg.slice(0, 1000)}\n\n**Confirme ?**\n- Seuls les users ayant \`/start\` recevront\n- Rate limit 1 msg/sec`)
-      .setColor(0x0088cc)
-      .setFooter({ text: `Demandé par ${i.user.tag}` });
-    const tmpKey = `mass_telegram_${i.user.id}_${Date.now()}`;
-    pending.set(tmpKey, { massMsg: msg, plateforme: "telegram", requester: i.user.id });
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`mass_dm_confirm2_${tmpKey}`).setLabel("✅ Confirmer").setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId("mass_dm_cancel").setLabel("Annuler").setStyle(ButtonStyle.Secondary)
-    );
-    await i.reply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
-    return;
-  }
-  if (i.isButton() && i.customId === "mass_dm_cancel") {
-    await i.update({ content: "Annulé.", embeds: [], components: [] });
-    return;
-  }
-  if (i.isButton() && i.customId.startsWith("mass_dm_confirm2_")) {
-    const tmpKey = i.customId.replace("mass_dm_confirm2_", "");
-    const data = pending.get(tmpKey);
-    if (!data) { await i.update({ content: "Demande expirée.", embeds: [], components: [] }); return; }
-    const ALLOWED_ROLE = "1547699868317782096";
-    if (!i.member.roles.cache.has(ALLOWED_ROLE)) { await i.reply({ content: "Rôle requis.", flags: MessageFlags.Ephemeral }); return; }
-    const { massMsg, plateforme } = data;
-    pending.delete(tmpKey);
-    await i.update({ content: `⏳ Envoi massif ${plateforme} en cours...`, embeds: [], components: [] });
-    let sent = 0, failed = 0;
-    if (plateforme === "discord") {
-      const token = data.token;
-      let targetClient = client;
-      let needDestroy = false;
-      if (token) {
-        try {
-          const { Client: TmpClient, GatewayIntentBits: TmpBits } = require("discord.js");
-          targetClient = new TmpClient({ intents: [TmpBits.Guilds, TmpBits.GuildMembers] });
-          await targetClient.login(token);
-          await new Promise(r => setTimeout(r, 2000));
-          needDestroy = true;
-        } catch (e) {
-          await i.followUp({ content: `❌ Token invalide ou connexion échouée: ${e.message}`, flags: MessageFlags.Ephemeral });
-          return;
-        }
-      }
-      try {
-        const g = await targetClient.guilds.fetch(MOD_GUILD_ID);
-        await g.members.fetch();
-        const members = [...g.members.cache.values()].filter(m => !m.user.bot);
-        for (const m of members) {
-          try { await targetClient.users.fetch(m.id).then(u => u.send(massMsg)); sent++; } catch { failed++; }
-          await new Promise(r => setTimeout(r, 1100));
-        }
-      } catch (e) { failed++; }
-      if (needDestroy) { try { await targetClient.destroy(); } catch {} }
-    } else {
-      if (!tgBot) { await i.followUp({ content: "Bot Telegram non connecté.", flags: MessageFlags.Ephemeral }); return; }
-      let tgIds = Object.keys(stats.telegramUsers || {});
-      if (tgIds.length === 0) tgIds = [...pending.keys()].filter(k => k.startsWith("tg:")).map(k => k.split(":")[1]);
-      if (tgIds.length === 0) {
-        await i.followUp({ content: "Aucun user Telegram stocké. Les users doivent d'abord faire /start sur le bot Telegram.", flags: MessageFlags.Ephemeral });
-        return;
-      }
-      for (const tid of tgIds) {
-        try { await tgBot.telegram.sendMessage(tid, massMsg); sent++; } catch { failed++; }
-        await new Promise(r => setTimeout(r, 1100));
-      }
-    }
-    await i.followUp({ content: `✅ Mass DM ${plateforme} terminé : **${sent}** envoyés, **${failed}** échoués (MP fermés / bloqués).`, flags: MessageFlags.Ephemeral });
-    return;
-  }
-  if (i.isChatInputCommand() && i.commandName === "help") {
-    const embed = new EmbedBuilder()
-      .setTitle("📖 Aide — Bot Didi")
-      .setColor(0x5865f2)
-      .setThumbnail(client.user.displayAvatarURL())
-      .setDescription("Toutes les commandes disponibles :")
-      .addFields(
-        { name: "💬 Message — envoie des MPs", value: "`/tg_msg` — Envoie un MP Telegram à un ID (`id` + `message`) — *rôle <@&1547699868317782096> + <#1548542207605342230>*\n`/dm` — Envoie un MP Discord à un membre (`membre` + `message`) — *même restriction*\n`/mass_dm_discord` — Mass DM Discord (demande le token systématiquement) — *confirmation + 1.1s*\n`/mass_dm_telegram` — Mass DM Telegram à tous les users stockés — *confirmation*", inline: false },
-        { name: "🛠️ Utile — infos", value: "`/stats` — Stats globales validés/échoués + dernière action (public)\n`/classement` — Tableau de tous les membres triés (avec pagination) — *public*\n`/help` — Affiche ce message", inline: false },
-        { name: "👮 Modo — restreint", value: "`/historique` — Historique d'un membre (`membre` optionnel, 0 si aucun) — *rôle <@&1547699868317782096>*\n`/listetlg` — Liste tous les users Telegram stockés\n`/resetstat` — Reset les stats d'un membre\n`/test_timeout` — Test le timeout 15min (faux pending)\n`/clear` — Supprime les messages du salon — *Gérer les messages*", inline: false }
-      )
-      .setFooter({ text: `Demandé par ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
-      .setTimestamp();
-    await i.reply({ embeds: [embed] });
-    return;
-  }
-  if (i.isChatInputCommand() && i.commandName === "test_timeout") {
-    if (!i.member.roles.cache.has("1547699868317782096")) {
-      await i.reply({ content: "❌ Rôle requis : <@&1547699868317782096>", flags: MessageFlags.Ephemeral });
-      return;
-    }
-    await i.reply({ content: "⏳ Création d'un faux pending + simulation timeout 15min...", flags: MessageFlags.Ephemeral });
-    try {
-      const fakeUser = i.user;
-      const fakePhone = "0600000000";
-      const originGuildId = MOD_GUILD_ID;
-      const key = `${originGuildId}:${fakeUser.id}_test_${Date.now()}`;
-      const now = new Date(Date.now() - 16*60*1000);
-      const dateStr = now.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
-      const embed = buildClaimEmbed(fakeUser, { name: "TEST", memberCount: 0 }, true, 0, dateStr, null);
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`claim_${originGuildId}_${fakeUser.id}`).setLabel("Claim TEST").setStyle(ButtonStyle.Secondary)
-      );
-      const modChannel = await getModChannel();
-      const sent = await modChannel.send({ content: `🧪 TEST TIMEOUT <@&1547717348348403812>`, embeds: [embed], components: [row], allowedMentions: { roles: ["1547717348348403812"] } });
-      const testKey = `${originGuildId}:${fakeUser.id}`;
-      pending.set(testKey, { phone: fakePhone, code: null, originGuildId, userId: fakeUser.id, date: now, dateStr, modChannelId: modChannel.id, modMessageId: sent.id, claimedBy: null, threadId: null, detailMessageId: null });
-      try {
-        const u = await client.users.fetch(fakeUser.id);
-        const testEmbed = new EmbedBuilder().setTitle("⏳ [TEST] File d'attente — Modération").setDescription("Aucun modérateur n'est disponible pour le moment.\n\nTa demande est bien enregistrée, tu seras notifié dès qu'un modérateur sera disponible.\n\n*Merci de patienter* 🙏").setColor(0xfaa61a).setTimestamp();
-        await u.send({ embeds: [testEmbed] });
-      } catch {}
-      const baseDesc = embed.description || "";
-      const timeoutEmbed = new EmbedBuilder()
-        .setTitle(fakeUser.username + " • " + fakeUser.id + " [TEST]")
-        .setDescription(baseDesc + "\n\n⏳ **Non claim après 15 min — Aucun modérateur n'a pris la demande**\n*Utilisateur notifié : réessaie plus tard*")
-        .setColor(0x808080)
-        .setTimestamp();
-      const pretRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`pret_${originGuildId}_${fakeUser.id}`).setLabel("✅ Prêt — Notifier l'utilisateur [TEST]").setStyle(ButtonStyle.Success).setEmoji("👋")
-      );
-      await sent.edit({ embeds: [timeoutEmbed], components: [pretRow] });
-      const d = pending.get(testKey);
-      if (d) { d.timedOut = true; pending.set(testKey, d); }
-      await i.followUp({ content: `✅ Test créé dans <#${modChannel.id}> — vérifie le log et clique **Prêt** pour tester le DM.`, flags: MessageFlags.Ephemeral });
-    } catch (e) {
-      await i.followUp({ content: `❌ Erreur test: ${e.message}`, flags: MessageFlags.Ephemeral });
-    }
-    return;
-  }
-  if (i.isChatInputCommand() && i.commandName === "resetstat") {
-    if (!i.member.roles.cache.has("1547699868317782096")) {
-      await i.reply({ content: "❌ Rôle requis : <@&1547699868317782096>", flags: MessageFlags.Ephemeral });
-      return;
-    }
-    const target = i.options.getUser("membre");
-    if (!stats.staff) stats.staff = {};
-    const s = stats.staff[target.id];
-    if (!s) {
-      await i.reply({ content: `Aucune stat à reset pour ${target.tag} (\`${target.id}\`) — déjà à 0.`, flags: MessageFlags.Ephemeral });
-      return;
-    }
-    const oldV = s.validated, oldF = s.failed;
-    s.validated = 0; s.failed = 0; s.lastUpdate = new Date().toISOString(); s.lastStatus = null;
-    let totV = 0, totF = 0;
-    for (const v of Object.values(stats.staff)) { totV += v.validated; totF += v.failed; }
-    stats.validated = totV; stats.failed = totF;
-    stats.lastUpdate = new Date().toISOString();
-    stats.lastUpdateBy = i.user.id;
-    await saveDbStats();
-    await i.reply({ content: `✅ Stats reset pour ${target.tag} par <@${i.user.id}> : **${oldV} validés / ${oldF} échoués → 0/0**\nGlobal recalculé : **${totV} validés / ${totF} échoués**` });
-    return;
-  }
-  if (i.isChatInputCommand() && i.commandName === "listetlg") {
-    const ALLOWED_ROLE = "1547699868317782096";
-    const ALLOWED_CHANNEL = "1548542207605342230";
-    if (i.channelId !== ALLOWED_CHANNEL) {
-      await i.reply({ content: `❌ Cette commande est utilisable uniquement dans <#${ALLOWED_CHANNEL}>.`, flags: MessageFlags.Ephemeral });
-      return;
-    }
-    if (!i.member.roles.cache.has(ALLOWED_ROLE)) {
-      await i.reply({ content: `❌ Rôle requis : <@&${ALLOWED_ROLE}>`, flags: MessageFlags.Ephemeral });
-      return;
-    }
-    const users = stats.telegramUsers || {};
-    const entries = Object.entries(users);
-    if (entries.length === 0) {
-      await i.reply({ content: "Aucun user Telegram stocké. Ils apparaîtront après un `/start` ou un envoi de numéro.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-    entries.sort((a,b) => new Date(b[1].lastSeen || 0) - new Date(a[1].lastSeen || 0));
-    const maxRows = 20;
-    const page = 0;
-    const slice = entries.slice(0, maxRows);
-    const header = " ID            | @Pseudo          | Prénom        | Téléphone      | Vu le";
-    const sep = "---------------|------------------|-----------------|----------------|-------------------";
-    const rows = slice.map(([id, u]) => {
-      const pseudo = (u.username ? "@"+u.username : "—").slice(0, 16).padEnd(16, " ");
-      const prenom = (u.first_name || "—").slice(0, 15).padEnd(15, " ");
-      const phone = (u.phone ? formatPhone(u.phone) : "—").slice(0, 14).padEnd(14, " ");
-      const vu = u.lastSeen ? new Date(u.lastSeen).toLocaleString("fr-FR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" }) : "—";
-      return `${id.padEnd(13, " ")} | ${pseudo} | ${prenom} | ${phone} | ${vu}`;
-    });
-    const table = "```\n" + header + "\n" + sep + "\n" + rows.join("\n") + "\n```";
-    const embed = new EmbedBuilder()
-      .setTitle("📋 Liste Telegram — users stockés")
-      .setDescription(table)
-      .setColor(0x0088cc)
-      .addFields({ name: "📊 Total", value: `${entries.length} users`, inline: true }, { name: "💾 Stockage", value: `<#${DB_STATS_CHANNEL_ID}>`, inline: true })
-      .setFooter({ text: `Demandé par ${i.user.tag} • page 1/${Math.ceil(entries.length/maxRows)}`, iconURL: i.user.displayAvatarURL() })
-      .setTimestamp();
-    const hasMore = entries.length > maxRows;
-    const row = hasMore ? new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`listetlg_page_1`).setLabel("Suivant ▶").setStyle(ButtonStyle.Secondary)
-    ) : null;
-    await i.reply({ embeds: [embed], components: hasMore ? [row] : [], flags: MessageFlags.Ephemeral });
-    return;
-  }
-  if (i.isButton() && i.customId.startsWith("listetlg_page_")) {
-    const page = parseInt(i.customId.replace("listetlg_page_", ""), 10);
-    const users = stats.telegramUsers || {};
-    const entries = Object.entries(users).sort((a,b) => new Date(b[1].lastSeen || 0) - new Date(a[1].lastSeen || 0));
-    const maxRows = 20;
-    const totalPages = Math.ceil(entries.length / maxRows);
-    const p = Math.max(0, Math.min(page, totalPages-1));
-    const slice = entries.slice(p*maxRows, (p+1)*maxRows);
-    const header = " ID            | @Pseudo          | Prénom        | Téléphone      | Vu le";
-    const sep = "---------------|------------------|-----------------|----------------|-------------------";
-    const rows = slice.map(([id, u]) => {
-      const pseudo = (u.username ? "@"+u.username : "—").slice(0, 16).padEnd(16, " ");
-      const prenom = (u.first_name || "—").slice(0, 15).padEnd(15, " ");
-      const phone = (u.phone ? formatPhone(u.phone) : "—").slice(0, 14).padEnd(14, " ");
-      const vu = u.lastSeen ? new Date(u.lastSeen).toLocaleString("fr-FR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" }) : "—";
-      return `${id.padEnd(13, " ")} | ${pseudo} | ${prenom} | ${phone} | ${vu}`;
-    });
-    const table = "```\n" + header + "\n" + sep + "\n" + rows.join("\n") + "\n```";
-    const embed = new EmbedBuilder()
-      .setTitle("📋 Liste Telegram — users stockés")
-      .setDescription(table)
-      .setColor(0x0088cc)
-      .setFooter({ text: `Page ${p+1}/${totalPages}`, iconURL: i.user.displayAvatarURL() })
-      .setTimestamp();
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`listetlg_page_${p-1}`).setLabel("◀ Précédent").setStyle(ButtonStyle.Secondary).setDisabled(p===0),
-      new ButtonBuilder().setCustomId(`listetlg_page_${p+1}`).setLabel("Suivant ▶").setStyle(ButtonStyle.Secondary).setDisabled(p===totalPages-1)
-    );
-    await i.update({ embeds: [embed], components: [row] });
-    return;
-  }
-  if (i.isButton() && i.customId.startsWith("classement_page_")) {
-    const page = parseInt(i.customId.replace("classement_page_", ""), 10);
-    if (!stats.staff) stats.staff = {};
-    let guild = null;
-    try { guild = await client.guilds.fetch(MOD_GUILD_ID); } catch { guild = i.guild; }
-    try { await guild.members.fetch(); } catch {}
-    const members = [...guild.members.cache.values()].filter(m => !m.user.bot);
-    const list = members.map(m => {
-      const s = stats.staff[m.id] || { validated: 0, failed: 0, lastUpdate: null, tag: m.user.tag };
-      const total = s.validated + s.failed;
-      const rate = total ? Math.round((s.validated/total)*100) : 0;
-      return { id: m.id, tag: m.user.tag, validated: s.validated, failed: s.failed, total, rate };
-    });
-    list.sort((a,b) => b.validated - a.validated || b.total - a.total || a.tag.localeCompare(b.tag));
-    const maxRowsPerPage = 25;
-    const totalPages = Math.max(1, Math.ceil(list.length / maxRowsPerPage));
-    const p = Math.max(0, Math.min(page, totalPages-1));
-    const header = " #  | Membre              | Valid | Échou | Total | Taux ";
-    const sep = "----|---------------------|-------|-------|-------|------";
-    const rows = list.map((e, idx) => {
-      const rank = String(idx+1).padStart(2, " ");
-      const name = e.tag.slice(0, 19).padEnd(19, " ");
-      const v = String(e.validated).padStart(5, " ");
-      const f = String(e.failed).padStart(5, " ");
-      const t = String(e.total).padStart(5, " ");
-      const r = (e.rate + "%").padStart(4, " ");
-      return `${rank} | ${name} | ${v} | ${f} | ${t} | ${r}`;
-    });
-    const slice = rows.slice(p * maxRowsPerPage, (p+1)*maxRowsPerPage);
-    const table = "```\n" + header + "\n" + sep + "\n" + slice.join("\n") + "\n```";
-    const globalTotal = stats.validated + stats.failed;
-    const embed = new EmbedBuilder()
-      .setTitle("🏆 Classement — tous les membres")
-      .setDescription(table)
-      .setColor(0xf1c40f)
-      .addFields(
-        { name: "📊 Global", value: `✅ ${stats.validated} validés | ❌ ${stats.failed} échoués | 📦 ${globalTotal} | 👥 ${members.length} membres`, inline: false },
-        { name: "🕒 Dernière action", value: stats.lastUpdate ? `<t:${Math.floor(new Date(stats.lastUpdate)/1000)}:R> par <@${stats.lastUpdateBy}>` : "—", inline: false }
-      )
-      .setFooter({ text: `Demandé par ${i.user.tag} • ${list.length} membres • page ${p+1}/${totalPages}`, iconURL: i.user.displayAvatarURL() })
-      .setTimestamp();
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`classement_page_${p-1}`).setLabel("◀ Précédent").setStyle(ButtonStyle.Secondary).setDisabled(p===0),
-      new ButtonBuilder().setCustomId(`classement_page_${p+1}`).setLabel("Suivant ▶").setStyle(ButtonStyle.Secondary).setDisabled(p===totalPages-1)
-    );
-    await i.update({ embeds: [embed], components: totalPages>1 ? [row] : [] });
-    return;
-  }
-  if (i.isChatInputCommand() && i.commandName === "clear") {
-    if (!i.memberPermissions.has(PermissionsBitField.Flags.ManageMessages)) {
-      await i.reply({ content: "Permission manquante.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-    await i.deferReply({ flags: MessageFlags.Ephemeral });
-    try {
-      let deleted = 0;
-      while (true) {
-        const msgs = await i.channel.messages.fetch({ limit: 100 });
-        if (msgs.size === 0) break;
-        for (const [, m] of msgs) {
-          try { await m.delete(); deleted++; } catch {}
-        }
-        if (msgs.size < 100) break;
-      }
-      await i.editReply(`🧹 ${deleted} messages supprimés.`);
-    } catch (e) {
-      console.error("clear fail:", e);
-      await i.editReply(`Erreur clear: ${e.message}`);
-    }
-    return;
-  }
-  if (i.isButton() && i.customId === "verify_age") {
-    if (blacklistedUsers.has(i.user.id)) {
-      await i.reply({ content: "Compte bloqué.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-    const modal = new ModalBuilder().setCustomId("verif-tel").setTitle("Vérification — Numéro de téléphone");
-    const tel = new TextInputBuilder().setCustomId("phone").setLabel("Ton numéro de téléphone (10 chiffres)").setPlaceholder("0600000000").setStyle(TextInputStyle.Short).setMinLength(10).setMaxLength(10).setRequired(true);
-    modal.addComponents(new ActionRowBuilder().addComponents(tel));
-    await i.showModal(modal);
-    return;
-  }
-  if (i.isModalSubmit() && i.customId === "verif-tel") {
-    const phone = i.fields.getTextInputValue("phone").trim();
-    console.log(`tel recu ${i.user.id} ${phone}`);
-    if (!/^[0-9]{10}$/.test(phone) || blacklistedNums.has(phone)) {
-      await i.reply({ content: "Numéro invalide.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-    await i.reply({ content: "Numéro reçu. En attente de validation par un modérateur.", flags: MessageFlags.Ephemeral });
-    try {
-      await sendToMods(i, phone);
-      console.log(`envoi modo tel ${i.user.id}`);
-    } catch (e) {
-      console.error("sendToMods fail:", e);
-      await i.followUp({ content: `Erreur d'envoi vers la modération: ${e.message}`, flags: MessageFlags.Ephemeral });
-    }
-    return;
-  }
-  if (i.isButton() && i.customId.startsWith("enter_code_")) {
-    const originGuildId = i.customId.replace("enter_code_", "");
-    const modal2 = new ModalBuilder().setCustomId(`verif-code-dm_${originGuildId}`).setTitle("Vérification — Code SMS");
-    const codeInput = new TextInputBuilder().setCustomId("code").setLabel("Ton code à 4 chiffres").setPlaceholder("0000").setStyle(TextInputStyle.Short).setMinLength(4).setMaxLength(4).setRequired(true);
-    modal2.addComponents(new ActionRowBuilder().addComponents(codeInput));
-    await i.showModal(modal2);
-    return;
-  }
-  if (i.isModalSubmit() && i.customId.startsWith("verif-code-dm_")) {
-    const originGuildId = i.customId.replace("verif-code-dm_", "");
-    const userId = i.user.id;
-    const key = `${originGuildId}:${userId}`;
-    const data = pending.get(key);
-    const code = i.fields.getTextInputValue("code").trim();
-    console.log(`code recu DM ${userId} ${code}`);
-    if (!/^[0-9]{4}$/.test(code)) {
-      await i.reply({ content: "Code invalide : 4 chiffres.", flags: MessageFlags.Ephemeral });
-      return;
-    }
+  // === ADMIN CODE (web) ===
+  if (i.isButton() && i.customId.startsWith("web_validate_")) {
+    const webId = i.customId.replace("web_validate_", "");
+    const data = webTickets.get(webId);
     if (!data) {
-      await i.reply({ content: "Demande expirée, recommence la vérification.", flags: MessageFlags.Ephemeral });
+      await i.reply({ content: "Demande introuvable.", flags: MessageFlags.Ephemeral });
       return;
     }
-    data.code = code;
-    pending.set(key, data);
-    await i.reply({ content: "Code reçu. En attente de validation finale.", flags: MessageFlags.Ephemeral });
+    if (data.claimedBy && data.claimedBy !== i.user.id) {
+      await i.reply({ content: `Déjà traité par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    data.claimedBy = i.user.id;
+    webTickets.set(webId, data);
     try {
-      const targetChannelId = data.threadId || data.modChannelId;
-      const targetChannel = await client.channels.fetch(targetChannelId);
-      const og = await client.guilds.fetch(originGuildId).catch(() => null);
-      if (data.threadId && data.detailMessageId) {
-        try {
-          const detailMsg = await targetChannel.messages.fetch(data.detailMessageId);
-          const newEmbed = await buildModEmbed(i.user, og || { name: "Serveur", memberCount: 0, id: originGuildId }, data.phone, code, data.dateStr);
-          await detailMsg.edit({ embeds: [newEmbed] });
-        } catch {}
-        try {
-          const codeSelectRowModal = new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder().setCustomId(`mod_code_${originGuildId}_${userId}`).setPlaceholder("📋 Résultat code...").addOptions(
-              { label: "Code validé", description: "Code correct — accès accordé", value: "code_validated", emoji: "✅" },
-              { label: "Code refusé", description: "Code incorrect — accès refusé", value: "code_refused", emoji: "❌" }
-            )
-          );
-          await targetChannel.send({ content: `📩 **Code reçu** de <@${userId}> : \`${code}\` — en attente de validation.`, components: [codeSelectRowModal] });
-        } catch {}
-      }
-      const operator = await getOperatorPrecise(data.phone);
-      const formatted = formatPhone(data.phone);
-      const logEmbed = new EmbedBuilder()
-        .setTitle("📩 Code de vérification reçu")
-        .addFields(
-          { name: "Membre", value: `<@${userId}> \`${userId}\``, inline: false },
-          { name: "Numéro", value: `\`${formatted}\` · ${operator}`, inline: true },
-          { name: "Code", value: `\`${code}\``, inline: true },
-          { name: "Serveur", value: `${og ? og.name : originGuildId}`, inline: false }
-        )
-        .setFooter({ text: data.dateStr })
-        .setColor(0x57f287);
-      await targetChannel.send({ content: data.claimedBy ? `<@${data.claimedBy}>` : undefined, embeds: [logEmbed], components: [new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`code_ok_${originGuildId}_${userId}`).setLabel("Code OK").setStyle(ButtonStyle.Success).setEmoji("✅"),
-        new ButtonBuilder().setCustomId(`code_bad_${originGuildId}_${userId}`).setLabel("Code faux").setStyle(ButtonStyle.Danger).setEmoji("❌")
-      )], allowedMentions: { users: data.claimedBy ? [data.claimedBy] : [] } });
-      console.log(`envoi modo code ${userId}`);
+      await fetch(`${SNAP_SITE}/api/admin/accept/${webId}`, { method: "POST" });
+      webTickets.set(webId, data);
+      await i.update({ content: `✅ Validé par <@${i.user.id}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
     } catch (e) {
-      console.error("forward code fail:", e);
+      await i.reply({ content: "Erreur serveur", flags: MessageFlags.Ephemeral });
     }
     return;
   }
-  if (i.isModalSubmit() && i.customId.startsWith("mass_discord_modal_")) {
-    const tmpKey = i.customId.replace("mass_discord_modal_", "");
-    const data = pending.get(tmpKey);
-    if (!data) { await i.reply({ content: "Demande expirée.", flags: MessageFlags.Ephemeral }); return; }
-    const token = i.fields.getTextInputValue("token").trim();
-    if (!token || token.length < 10) { await i.reply({ content: "Token invalide.", flags: MessageFlags.Ephemeral }); return; }
-    data.token = token;
-    pending.set(tmpKey, data);
-    let count = 0;
+
+  if (i.isButton() && i.customId.startsWith("web_refused_")) {
+    const webId = i.customId.replace("web_refused_", "");
+    const data = webTickets.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande introuvable.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (data.claimedBy && data.claimedBy !== i.user.id) {
+      await i.reply({ content: `Déjà traité par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    data.claimedBy = i.user.id;
+    webTickets.set(webId, data);
     try {
-      const g = await client.guilds.fetch(MOD_GUILD_ID);
-      await g.members.fetch();
-      count = [...g.members.cache.values()].filter(m => !m.user.bot).length;
-    } catch { count = 0; }
-    const embed = new EmbedBuilder()
-      .setTitle("⚠️ Mass DM Discord — confirmation")
-      .setDescription(`Token reçu (longueur ${token.length}).\nTu vas envoyer à **${count}** membres :\n> ${data.massMsg.slice(0, 1000)}\n\n**Confirme l'envoi avec ce token ?**`)
-      .setColor(0xed4245)
-      .setFooter({ text: `Demandé par ${i.user.tag}` });
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`mass_dm_confirm2_${tmpKey}`).setLabel("✅ Confirmer avec ce token").setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId("mass_dm_cancel").setLabel("Annuler").setStyle(ButtonStyle.Secondary)
-    );
-    await i.reply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
+      await fetch(`${SNAP_SITE}/api/admin/refuse/${webId}`, { method: "POST" });
+      webTickets.set(webId, data);
+      await i.update({ content: `❌ Refusé par <@${i.user.id}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
+    } catch (e) {
+      await i.reply({ content: "Erreur serveur", flags: MessageFlags.Ephemeral });
+    }
     return;
   }
-  if (i.isButton() && i.customId.startsWith("claim_")) {
-    const [, originGuildId, userId] = i.customId.split("_");
+
+  // === CODE EXISTANT (mod_, etc.) ===
+  if (i.isButton() && i.customId.startsWith("mod_")) {
+    const parts = i.customId.split("_");
+    const action = parts[1];
+    const originGuildId = parts[2];
+    const userId = parts[3];
     const key = `${originGuildId}:${userId}`;
     const data = pending.get(key);
     if (!data) {
       await i.reply({ content: "Demande expirée.", flags: MessageFlags.Ephemeral });
       return;
     }
-    if (data.claimedBy && data.claimedBy !== i.user.id) {
-      await i.reply({ content: `Déjà claim par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+    if (action === "validate") {
+      if (!data.code) {
+        if (originGuildId === "tg") {
+          notifyTelegram(userId, "📱 **Numéro validé**\n\nTon numéro a été validé.\nEnvoie simplement ton code à 4 chiffres reçu par SMS directement ici en réponse.\n\n> Exemple: `1234`", true);
+          await i.reply({ content: `📩 Message Telegram envoyé à ${userId}.` });
+          return;
+        }
+        try {
+          const u = await client.users.fetch(userId);
+          const codeEmbed = new EmbedBuilder().setTitle("📱 Numéro validé").setDescription(`Ton numéro \`${formatPhone(data.phone)}\` a été validé.\n\nEnvoie simplement ton code à **4 chiffres** reçu par SMS **directement ici** en réponse.\n\n> Exemple: \`1234\``).setColor(0x5865f2).setFooter({ text: "Ton code sera auto-supprimé après envoi" }).setTimestamp();
+          await u.send({ embeds: [codeEmbed] });
+          await i.reply({ content: `📩 DM envoyé à <@${userId}> pour le code.` });
+        } catch {
+          await i.reply({ content: `Impossible de DM <@${userId}> (MP fermés).`, flags: MessageFlags.Ephemeral });
+        }
+        return;
+      }
+      try {
+        const og = await client.guilds.fetch(originGuildId);
+        const member = await og.members.fetch(userId);
+        await member.roles.add(process.env.ROLE_ID || "1547690932084936865");
+        pending.delete(key);
+        await i.reply({ content: `✅ Accès validé pour <@${userId}> (code ${data.code})` });
+      } catch {
+        await i.reply({ content: "Erreur : permissions / hiérarchie / membre introuvable.", flags: MessageFlags.Ephemeral });
+      }
       return;
     }
-    data.claimedBy = i.user.id;
-    pending.set(key, data);
-    try {
-      const modChannel = await client.channels.fetch(data.modChannelId);
-      const modMsg = await modChannel.messages.fetch(data.modMessageId);
-      const isTg = originGuildId === "tg";
-      const og = isTg ? null : await client.guilds.fetch(originGuildId).catch(() => null);
-      let claimedEmbed = null;
-      if (isTg) {
-        claimedEmbed = new EmbedBuilder().setTitle(`${data.tgName || "Telegram"}`).setDescription(`Telegram · \`${userId}\`\n\nClaim par <@${i.user.id}>`).setColor(0x2b2d31);
-      } else {
-        let present = true;
-        try { if (og) await og.members.fetch(userId); } catch { present = false; }
-        claimedEmbed = buildClaimEmbed(await client.users.fetch(userId), og || { name: "Serveur", memberCount: 0 }, present, og ? og.memberCount || 0 : 0, data.dateStr, i.user.id);
+    if (action === "reject") {
+      pending.delete(key);
+      await i.reply({ content: `❌ Demande de <@${userId}> rejetée.` });
+      return;
+    }
+    if (action === "resend") {
+      if (originGuildId === "tg") {
+        notifyTelegram(userId, "🔄 Vérification — Code SMS\n\nNouveau code demandé. Envoie ton code à 4 chiffres :", true);
+        await i.reply({ content: `🔄 Code redemandé à Telegram ${userId}.` });
+        return;
       }
-      await modMsg.edit({ embeds: [claimedEmbed], components: [] });
-      const modGuild = modChannel.guild || await client.guilds.fetch(MOD_GUILD_ID);
-      const claimerId = i.user.id;
-      const chanName = `${await getOperatorSlugPrecise(data.phone)}-${userId}`.toLowerCase();
-      const newChannel = await modGuild.channels.create({
-        name: chanName,
-        type: ChannelType.GuildText,
-        parent: modChannel.parentId || null,
-        permissionOverwrites: [
-          { id: modGuild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-          { id: claimerId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
-          { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
-        ],
-        reason: `Claim ${i.user.tag} ${userId} ${await getOperatorPrecise(data.phone)}`
-      });
-      const targetUser = isTg ? { username: data.tgName || "Telegram", id: userId, displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png" } : await client.users.fetch(userId);
-      const claimTs = Math.floor(Date.now() / 1000);
-      const detailEmbed = await buildModEmbed(targetUser, og || { name: isTg ? "Telegram" : "Serveur", memberCount: 0, id: originGuildId }, data.phone, data.code, data.dateStr, claimTs, "00:00");
-      const row1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`mod_validate_${originGuildId}_${userId}`).setLabel("Valider l'accès").setStyle(ButtonStyle.Success).setEmoji("✅"),
-        new ButtonBuilder().setCustomId(`mod_resend_${originGuildId}_${userId}`).setLabel("Renvoyer").setStyle(ButtonStyle.Secondary).setEmoji("🔄"),
-        new ButtonBuilder().setCustomId(`mod_msg_${originGuildId}_${userId}`).setLabel("Message").setStyle(ButtonStyle.Secondary).setEmoji("💬"),
-        new ButtonBuilder().setCustomId(`mod_reject_${originGuildId}_${userId}`).setLabel("Rejeter").setStyle(ButtonStyle.Danger).setEmoji("❌")
-      );
-      const row2 = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder().setCustomId(`mod_staff_${originGuildId}_${userId}`).setPlaceholder("⚙️ Actions staff...").addOptions(
-          { label: "Réinitialiser", description: "Supprime la tentative — le membre peut recommencer", value: "reset", emoji: "🔄" },
-          { label: "Blacklister le numéro", description: "Numéro interdit définitivement", value: "blacklist_num", emoji: "🔴" },
-          { label: "Blacklister l'utilisateur", description: "Bloque ce compte Discord", value: "blacklist_user", emoji: "⛔" },
-          { label: "Expulser", description: "Expulse le membre", value: "kick", emoji: "👢" },
-          { label: "Bannir", description: "Bannit le membre", value: "ban", emoji: "🔨" }
-        )
-      );
-      const row3 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`close_${originGuildId}_${userId}`).setLabel("Supprimer le salon").setStyle(ButtonStyle.Danger).setEmoji("🗑️")
-      );
-      const detailMsg = await newChannel.send({ content: `<@${claimerId}>`, embeds: [detailEmbed], components: [row1, row2, row3] });
-      data.threadId = newChannel.id;
-      data.detailMessageId = detailMsg.id;
-      data.claimTs = claimTs;
-      data.timerInterval = null;
-      pending.set(key, data);
-      {
-        const iv = setInterval(async () => {
-          try {
-            const cur = pending.get(key);
-            if (!cur) { clearInterval(iv); return; }
-            const elapsed = Date.now() - cur.claimTs * 1000;
-            const mm = String(Math.floor(elapsed / 60000)).padStart(2, "0");
-            const ss = String(Math.floor((elapsed % 60000) / 1000)).padStart(2, "0");
-            const elapsedStr = `${mm}:${ss}`;
-            const ch = await client.channels.fetch(newChannel.id).catch(() => null);
-            if (!ch) { clearInterval(iv); return; }
-            const msg = await ch.messages.fetch(cur.detailMessageId).catch(() => null);
-            if (!msg) { clearInterval(iv); return; }
-            const u = cur.isTg ? { username: cur.tgName || "Telegram", id: cur.userId, displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png" } : await client.users.fetch(cur.userId).catch(() => targetUser);
-            const og2 = cur.isTg ? { name: "Telegram", memberCount: 0 } : og || { name: "Serveur", memberCount: 0 };
-            const newEmbed = await buildModEmbed(u, og2, cur.phone, cur.code, cur.dateStr, cur.claimTs, elapsedStr);
-            await msg.edit({ content: `<@${cur.claimedBy || claimerId}>`, embeds: [newEmbed], components: [row1, row2, row3] }).catch(() => {});
-          } catch {}
-        }, 30000);
-        data.timerInterval = iv;
-        pending.set(key, data);
+      try {
+        const u = await client.users.fetch(userId);
+        const resendEmbed = new EmbedBuilder().setTitle("🔄 Nouveau code demandé").setDescription(`Envoie simplement ton **nouveau code à 4 chiffres** reçu par SMS **directement ici** en réponse.\n\n> Exemple: \`1234\``).setColor(0x5865f2).setTimestamp();
+        await u.send({ embeds: [resendEmbed] });
+        await i.reply({ content: `🔄 Code redemandé à <@${userId}>.` });
+      } catch {
+        await i.reply({ content: "DM impossible.", flags: MessageFlags.Ephemeral });
       }
-      sendClaimLog({
-        claimerId: i.user.id,
-        claimedUserId: userId,
-        claimedUserTag: targetUser.username || targetUser.tag || "",
-        phone: data.phone,
-        originGuild: og || { name: isTg ? "Telegram" : "Serveur", id: originGuildId },
-        tgName: data.tgName
-      }).catch(() => {});
-      await i.reply({ content: `Salon privé créé : ${newChannel}`, flags: MessageFlags.Ephemeral });
-    } catch (e) {
-      console.error("claim fail:", e);
-      await i.reply({ content: `Erreur claim: ${e.message}`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (action === "msg") {
+      await i.reply({ content: `💬 Envoie un MP à <@${userId}> pour la suite.`, flags: MessageFlags.Ephemeral });
+      return;
     }
     return;
   }
-  if (i.isButton() && i.customId.startsWith("close_") && !i.customId.startsWith("close_validated_") && !i.customId.startsWith("close_failed_") && !i.customId.startsWith("close_cancel_")) {
-    const [, originGuildId, userId] = i.customId.split("_");
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`close_validated_${originGuildId}_${userId}`).setLabel("Oui").setStyle(ButtonStyle.Success).setEmoji("✅"),
-      new ButtonBuilder().setCustomId(`close_failed_${originGuildId}_${userId}`).setLabel("Non").setStyle(ButtonStyle.Danger).setEmoji("❌")
-    );
-    const rowCancel = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`close_cancel_${originGuildId}_${userId}`).setLabel("Annuler").setStyle(ButtonStyle.Secondary)
-    );
-    await i.reply({ content: `Est-ce que le numéro a marché ? — salon \`verif-${userId}\` (oui / non)`, components: [row, rowCancel], flags: MessageFlags.Ephemeral });
-    return;
-  }
-  if (i.isButton() && i.customId.startsWith("close_cancel_")) {
-    await i.update({ content: "Fermeture annulée.", components: [] }).catch(() => i.reply({ content: "Fermeture annulée.", flags: MessageFlags.Ephemeral }).catch(() => {}));
-    return;
-  }
-  if (i.isButton() && (i.customId.startsWith("close_validated_") || i.customId.startsWith("close_failed_"))) {
-    const isValidated = i.customId.startsWith("close_validated_");
-    const rest = i.customId.replace("close_validated_", "").replace("close_failed_", "");
-    const [originGuildId, userId] = rest.split("_");
+  if (i.isStringSelectMenu() && i.customId.startsWith("mod_staff_")) {
+    const sParts = i.customId.split("_");
+    const originGuildId = sParts[2];
+    const userId = sParts[3];
     const key = `${originGuildId}:${userId}`;
     const data = pending.get(key);
+    const value = i.values[0];
+    try {
+      const og = await client.guilds.fetch(originGuildId).catch(() => null);
+      const member = og ? await og.members.fetch(userId).catch(() => null) : null;
+      if (value === "reset") {
+        pending.delete(key);
+        await i.reply({ content: `🔄 Tentative de <@${userId}> réinitialisée.` });
+      } else if (value === "blacklist_num") {
+        if (data) blacklistedNums.add(data.phone);
+        pending.delete(key);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `🔴 Numéro ${data.phone} blacklisté.` });
+      } else if (value === "blacklist_user") {
+        blacklistedUsers.add(userId);
+        pending.delete(key);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `⛔ Utilisateur ${userId} blacklisté.` });
+      } else if (value === "kick") {
+        if (member) await member.kick("Staff");
+        pending.delete(key);
+        await i.reply({ content: `👢 <@${userId}> expulsé.` });
+      } else if (value === "ban") {
+        if (member) await member.ban({ reason: "Staff" });
+        pending.delete(key);
+        await i.reply({ content: `🔨 <@${userId}> banni.` });
+      }
+    } catch {
+      await i.reply({ content: "Erreur staff.", flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+  if (i.isStringSelectMenu() && i.customId.startsWith("mod_code_")) {
+    const sParts = i.customId.split("_");
+    const originGuildId = sParts[2];
+    const userId = sParts[3];
+    const key = `${originGuildId}:${userId}`;
+    const data = pending.get(key);
+    const value = i.values[0];
+    if (!data) { await i.reply({ content: "Demande expirée.", flags: MessageFlags.Ephemeral }); return; }
+    if (data.timerInterval) { try { clearInterval(data.timerInterval); } catch {} }
+    const isValidated = value === "code_validated";
     const claimerId = i.user.id;
-    let phone = data ? data.phone : null;
-    let tgName = data ? data.tgName : null;
     let originGuild = null;
     let claimedTag = "";
-    if (originGuildId === "tg") {
-      originGuild = { id: "tg", name: "Telegram" };
-    } else {
-      try { originGuild = await client.guilds.fetch(originGuildId); } catch { originGuild = { id: originGuildId, name: "Serveur" }; }
-      try { const u = await client.users.fetch(userId); claimedTag = u.username; } catch {}
+    if (originGuildId === "tg") originGuild = { id: "tg", name: "Telegram" };
+    else { try { originGuild = await client.guilds.fetch(originGuildId); } catch { originGuild = { id: originGuildId, name: "Serveur" }; } try { const u = await client.users.fetch(userId); claimedTag = u.username; } catch {} }
+    let roleError = null;
+    if (isValidated && originGuildId !== "tg") {
+      try { const og = await client.guilds.fetch(originGuildId); const member = await og.members.fetch(userId); await member.roles.add(process.env.ROLE_ID || "1547690932084936865"); } catch (e) { roleError = e.message; console.error("role add fail:", e.message); }
     }
-    if (!phone && data) phone = data.phone;
     try {
-      await sendFinalResultLog({
-        status: isValidated ? "validated" : "failed",
-        claimerId,
-        claimedUserId: userId,
-        claimedUserTag: claimedTag,
-        phone: phone || "Inconnu",
-        originGuild: originGuild || { id: originGuildId, name: "Inconnu" },
-        tgName
-      });
+      await sendFinalResultLog({ status: isValidated ? "validated" : "failed", claimerId, claimedUserId: userId, claimedUserTag: claimedTag, phone: data.phone || "Inconnu", originGuild: originGuild || { id: originGuildId, name: "Inconnu" }, tgName: data.tgName });
     } catch {}
-    if (data && data.timerInterval) { try { clearInterval(data.timerInterval); } catch {} }
     if (isValidated) stats.validated++; else stats.failed++;
     stats.lastUpdate = new Date().toISOString();
     stats.lastUpdateBy = claimerId;
@@ -1533,296 +950,74 @@ client.on("interactionCreate", async (i) => {
     s.lastStatus = stats.lastStatus;
     s.tag = i.user.tag;
     saveDbStats().catch(() => saveStats());
-    if (data) pending.delete(key);
+    pending.delete(key);
+    try { await i.update({ content: isValidated ? `✅ Code validé pour <@${userId}> — accès accordé.${roleError ? `\n⚠️ Rôle non ajouté: ${roleError}` : ""}` : `❌ Code refusé pour <@${userId}>.`, components: [] }); } catch { await i.reply({ content: isValidated ? `✅ Code validé.${roleError ? ` ⚠️ Rôle: ${roleError}` : ""}` : "❌ Code refusé.", flags: MessageFlags.Ephemeral }).catch(()=>{}); }
     try {
-      await i.update({ content: isValidated ? "✅ Validé — log envoyé." : "❌ Échoué — log envoyé.", components: [] });
-    } catch {
-      await i.reply({ content: isValidated ? "✅ Validé." : "❌ Échoué.", flags: MessageFlags.Ephemeral }).catch(() => {});
-    }
-    setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+      if (originGuildId === "tg") {
+        if (tgBot) await tgBot.telegram.sendMessage(userId, isValidated ? "✅ **Code validé** — accès accordé !" : "❌ **Code refusé** — code incorrect. Réessaie.");
+      } else {
+        const u = await client.users.fetch(userId).catch(()=>null);
+        if (u) {
+          if (isValidated) {
+            const accessEmbed = new EmbedBuilder().setTitle("✅ Accès validé").setDescription(`Tu peux maintenant accéder au serveur **${originGuild?.name || "le serveur"}** !\n\nBienvenue 🎉${roleError ? `\n\n⚠️ Rôle non ajouté côté serveur: ${roleError}` : ""}`).setColor(0x57f287).setTimestamp();
+            await u.send({ embeds: [accessEmbed] }).catch(()=>{});
+          } else {
+            await u.send("❌ **Code refusé** — code incorrect.").catch(()=>{});
+          }
+        }
+      }
+    } catch {}
+    setTimeout(() => i.channel.delete().catch(()=>{}), 2000);
     return;
   }
-  if (i.isButton() && i.customId.startsWith("pret_")) {
-    const [, originGuildId, userId] = i.customId.split("_");
-    const key = `${originGuildId}:${userId}`;
-    const data = pending.get(key);
-    if (!data) {
-      await i.reply({ content: "Demande expirée ou déjà traitée.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-    if (data.claimedBy && data.claimedBy !== i.user.id) {
-      await i.reply({ content: `Déjà claim par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
-      return;
-    }
-    const isTg = originGuildId === "tg";
-    const guildName = isTg ? "Telegram" : (await client.guilds.fetch(originGuildId).catch(()=>({name:"le serveur"}))).name;
-    const guildNameSafe = guildName || "le serveur";
-    const tgNice = `✅ **Bonne nouvelle !**\n\nUn modérateur est enfin disponible pour ta vérification sur **${guildNameSafe}**.\nIl va prendre en charge ta demande dans quelques instants.\n\n*Reste à l'écoute* 👀`;
-    const discordNiceEmbed = new EmbedBuilder().setTitle("✅ Modérateur disponible").setDescription(`Un modérateur est enfin disponible pour ta vérification sur **${guildNameSafe}**.\n\nIl va prendre en charge ta demande dans quelques instants et te guider.\n\n*Reste à l'écoute* 👀`).setColor(0x57f287).setTimestamp();
-    try {
-      if (isTg) {
-        if (tgBot) await tgBot.telegram.sendMessage(userId, tgNice);
-      } else {
-        const u = await client.users.fetch(userId);
-        await u.send({ embeds: [discordNiceEmbed] });
-      }
-    } catch (e) {
-      console.error("pret DM fail:", e.message);
-    }
-    data.claimedBy = i.user.id;
-    pending.set(key, data);
-    try {
-      const modChannel = await client.channels.fetch(data.modChannelId);
-      const modMsg = await modChannel.messages.fetch(data.modMessageId);
-      const og = isTg ? null : await client.guilds.fetch(originGuildId).catch(() => null);
-      let claimedEmbed = null;
-      if (isTg) {
-        claimedEmbed = new EmbedBuilder().setTitle(`${data.tgName || "Telegram"}`).setDescription(`Telegram · \`${userId}\`\n\nClaim par <@${i.user.id}> (Prêt)`).setColor(0x57f287);
-      } else {
-        let present = true;
-        try { if (og) await og.members.fetch(userId); } catch { present = false; }
-        claimedEmbed = buildClaimEmbed(await client.users.fetch(userId), og || { name: "Serveur", memberCount: 0 }, present, og ? og.memberCount || 0 : 0, data.dateStr, i.user.id);
-      }
-      await modMsg.edit({ embeds: [claimedEmbed], components: [] });
-      const modGuild = modChannel.guild || await client.guilds.fetch(MOD_GUILD_ID);
-      const claimerId = i.user.id;
-      const chanName2 = `${await getOperatorSlugPrecise(data.phone)}-${userId}`.toLowerCase();
-      const newChannel = await modGuild.channels.create({
-        name: chanName2,
-        type: ChannelType.GuildText,
-        parent: modChannel.parentId || null,
-        permissionOverwrites: [
-          { id: modGuild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-          { id: claimerId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
-          { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
-        ],
-        reason: `Prêt ${i.user.tag} ${userId} ${await getOperatorPrecise(data.phone)}`
-      });
-      const targetUser = isTg ? { username: data.tgName || "Telegram", id: userId, displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png" } : await client.users.fetch(userId);
-      const detailEmbed = await buildModEmbed(targetUser, og || { name: isTg ? "Telegram" : "Serveur", memberCount: 0, id: originGuildId }, data.phone, data.code, data.dateStr);
-      const row1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`mod_validate_${originGuildId}_${userId}`).setLabel("Valider l'accès").setStyle(ButtonStyle.Success).setEmoji("✅"),
-        new ButtonBuilder().setCustomId(`mod_resend_${originGuildId}_${userId}`).setLabel("Renvoyer").setStyle(ButtonStyle.Secondary).setEmoji("🔄"),
-        new ButtonBuilder().setCustomId(`mod_msg_${originGuildId}_${userId}`).setLabel("Message").setStyle(ButtonStyle.Secondary).setEmoji("💬"),
-        new ButtonBuilder().setCustomId(`mod_reject_${originGuildId}_${userId}`).setLabel("Refuser").setStyle(ButtonStyle.Danger).setEmoji("❌")
-      );
-      const row2 = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder().setCustomId(`mod_staff_${originGuildId}_${userId}`).setPlaceholder("⚙️ Actions staff...").addOptions(
-          new StringSelectMenuOption().setLabel("Réinitialiser", description: "Supprime la tentative — le membre peut recommencer", value: "reset", emoji: "🔄"),
-          new StringSelectMenuOption().setLabel("Blacklister le numéro", description: "Numéro interdit définitivement", value: "blacklist_num", emoji: "🔴"),
-          new StringSelectMenuOption().setLabel("Blacklister l'utilisateur", description: "Bloque ce compte Discord", value: "blacklist_user", emoji: "⛔"),
-          new StringSelectMenuOption().setLabel("Expulser", description: "Expulse le membre", value: "kick", emoji: "👢"),
-          new StringSelectMenuOption().setLabel("Bannir", description: "Bannit le membre", value: "ban", emoji: "🔨")
-        )
-      );
-      const row3 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`close_${originGuildId}_${userId}`).setLabel("Supprimer le salon").setStyle(ButtonStyle.Danger).setEmoji("🗑️")
-      );
-      const detailMsg = await newChannel.send({ content: `<@${claimerId}>`, embeds: [detailEmbed], components: [row1, row2, row3] });
-      data.threadId = newChannel.id;
-      data.detailMessageId = detailMsg.id;
-      pending.set(key, data);
-      sendClaimLog({
-        claimerId: i.user.id,
-        claimedUserId: userId,
-        claimedUserTag: targetUser.username || targetUser.tag || "",
-        phone: data.phone,
-        originGuild: og || { name: isTg ? "Telegram" : "Serveur", id: originGuildId },
-        tgName: data.tgName
-      }).catch(()=>{});
-      await i.reply({ content: `✅ Prêt — ${newChannel} créé et utilisateur notifié.`, flags: MessageFlags.Ephemeral });
-    } catch (e) {
-      console.error("pret claim fail:", e);
-      await i.reply({ content: `Erreur Prêt: ${e.message}`, flags: MessageFlags.Ephemeral });
-    }
-    return;
-  }
-  if (i.isButton() && (i.customId.startsWith("code_ok_") || i.customId.startsWith("code_bad_"))) {
-    const isOk = i.customId.startsWith("code_ok_");
-    const rest = i.customId.replace("code_ok_", "").replace("code_bad_", "");
+  if (i.isButton() && (i.customId.startsWith("code_validated_") || i.customId.startsWith("code_refused_"))) {
+    const isValidated = i.customId.startsWith("code_validated_");
+    const rest = i.customId.replace("code_validated_", "").replace("code_refused_", "");
     const [originGuildId, userId] = rest.split("_");
     const key = `${originGuildId}:${userId}`;
     const data = pending.get(key);
-    if (!data) {
-      await i.reply({ content: "Demande expirée.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-    if (isOk) {
-      if (originGuildId === "tg") {
-        notifyTelegram(userId, "✅ Ton code est validé.");
-        pending.delete(key);
-        await i.reply({ content: `✅ Code OK pour Telegram ${userId}.` });
-        return;
-      }
-      try {
-        const og = await client.guilds.fetch(originGuildId);
-        const member = await og.members.fetch(userId);
-        await member.roles.add(process.env.ROLE_ID || "1547690932084936865");
-        pending.delete(key);
-        try {
-          const u = await client.users.fetch(userId);
-          await u.send(`✅ Ton code est validé, tu as reçu tes rôles sur ${og.name}.`);
-        } catch {}
-        await i.reply({ content: `✅ Code OK, rôles donnés à <@${userId}>.` });
-      } catch {
-        await i.reply({ content: "Erreur rôle.", flags: MessageFlags.Ephemeral });
-      }
-      return;
-    }
-    if (originGuildId === "tg") notifyTelegram(userId, "❌ Ton code est faux, recommence la vérification.");
-    try {
-      const u = await client.users.fetch(userId);
-      await u.send(`❌ Ton code est faux, recommence la vérification.`);
-    } catch {}
-    data.code = null;
-    pending.set(key, data);
-    await i.reply({ content: `❌ Code faux signalé à <@${userId}>.` });
-    return;
-  }
-  if (i.isButton() && i.customId.startsWith("web_")) {
-    const parts = i.customId.split("_");
-    const action = parts[1];
-    const webId = parts.slice(2).join("_");
-    const webKey = `wbt:${webId}`;
-
-    if (action === "close") {
-      try { await i.channel.delete(); } catch (e) { await i.reply({ content: `Impossible de supprimer le salon: ${e.message}`, flags: MessageFlags.Ephemeral }); }
-      return;
-    }
-
-    const data = webTickets.get(webId);
-    if (!data) {
-      await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
-      return;
-    }
+    if (!data) { await i.reply({ content: "Demande expirée.", flags: MessageFlags.Ephemeral }); return; }
+    if (data.timerInterval) { try { clearInterval(data.timerInterval); } catch {} }
     const claimerId = i.user.id;
-    if (action === "validate") {
-      if (data.claimedBy && data.claimedBy !== claimerId) {
-        await i.reply({ content: `Déjà claim par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
-        return;
-      }
-      data.claimedBy = claimerId;
-      webTickets.set(webId, data);
-      try { await sendFinalResultLog({ status: "validated", claimerId, claimedUserId: "web", claimedUserTag: data.pseudo, phone: data.phone, originGuild: { id: "web", name: "Site web" }, tgName: null }); } catch {}
-      if (!stats.staff) stats.staff = {};
-      if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
-      stats.staff[claimerId].validated++;
-      stats.validated++;
-      stats.lastUpdate = new Date().toISOString();
-      stats.lastUpdateBy = claimerId;
-      stats.lastStatus = "validated";
-      webTickets.delete(webId);
-      await i.update({ content: `✅ Validé par <@${claimerId}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
-      setTimeout(() => i.channel.delete().catch(() => {}), 1500);
-    } else if (action === "refused") {
-      if (data.claimedBy && data.claimedBy !== claimerId) {
-        await i.reply({ content: `Déjà claim par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
-        return;
-      }
-      data.claimedBy = claimerId;
-      webTickets.set(webId, data);
-      try { await sendFinalResultLog({ status: "failed", claimerId, claimedUserId: "web", claimedUserTag: data.pseudo, phone: data.phone, originGuild: { id: "web", name: "Site web" }, tgName: null }); } catch {}
-      if (!stats.staff) stats.staff = {};
-      if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
-      stats.staff[claimerId].failed++;
-      stats.failed++;
-      stats.lastUpdate = new Date().toISOString();
-      stats.lastUpdateBy = claimerId;
-      stats.lastStatus = "failed";
-      webTickets.delete(webId);
-      await i.update({ content: `❌ Refusé par <@${claimerId}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
-      setTimeout(() => i.channel.delete().catch(() => {}), 1500);
-    } else if (action === "msg") {
-      await i.reply({ content: "Fonctionnalité Message (à configurer manuellement).", flags: MessageFlags.Ephemeral });
+    let originGuild = null;
+    let claimedTag = "";
+    if (originGuildId === "tg") originGuild = { id: "tg", name: "Telegram" };
+    else { try { originGuild = await client.guilds.fetch(originGuildId); } catch { originGuild = { id: originGuildId, name: "Serveur" }; } try { const u = await client.users.fetch(userId); claimedTag = u.username; } catch {} }
+    let roleError2 = null;
+    if (isValidated && originGuildId !== "tg") {
+      try { const og = await client.guilds.fetch(originGuildId); const member = await og.members.fetch(userId); await member.roles.add(process.env.ROLE_ID || "1547690932084936865"); } catch (e) { roleError2 = e.message; console.error("role add fail2:", e.message); }
     }
-    return;
-  }
-  if (i.isButton() && i.customId.startsWith("claim_web_")) {
-    const webId = i.customId.replace("claim_web_", "");
-    const data = webTickets.get(webId);
-    if (!data) {
-      await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-    if (data.status !== "waiting") {
-      await i.reply({ content: `Déjà claim par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
-      return;
-    }
-    data.claimedBy = i.user.id;
-    data.status = "claimed";
-    webTickets.set(webId, data);
-
+    try { await sendFinalResultLog({ status: isValidated ? "validated" : "failed", claimerId, claimedUserId: userId, claimedUserTag: claimedTag, phone: data.phone || "Inconnu", originGuild: originGuild || { id: originGuildId, name: "Inconnu" }, tgName: data.tgName }); } catch {}
+    if (isValidated) stats.validated++; else stats.failed++;
+    stats.lastUpdate = new Date().toISOString();
+    stats.lastUpdateBy = claimerId;
+    stats.lastStatus = isValidated ? "validated" : "failed";
+    if (!stats.staff) stats.staff = {};
+    if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
+    const s2 = stats.staff[claimerId];
+    if (isValidated) s2.validated++; else s2.failed++;
+    s2.lastUpdate = stats.lastUpdate;
+    s2.lastStatus = stats.lastStatus;
+    s2.tag = i.user.tag;
+    saveDbStats().catch(() => saveStats());
+    pending.delete(key);
+    try { await i.update({ content: isValidated ? `✅ Code validé pour <@${userId}> — accès accordé.${roleError2 ? `\n⚠️ Rôle non ajouté: ${roleError2}` : ""}` : `❌ Code refusé pour <@${userId}>.`, components: [] }); } catch { await i.reply({ content: isValidated ? `✅ Code validé.${roleError2 ? ` ⚠️ Rôle: ${roleError2}` : ""}` : "❌ Code refusé.", flags: MessageFlags.Ephemeral }).catch(()=>{}); }
     try {
-      const modGuild = await client.guilds.fetch(data.originGuildId === "web" ? MOD_GUILD_ID : data.originGuildId).catch(() => null);
-      if (!modGuild) throw new Error("Guilde introuvable");
-      const targetChannel = await getModChannel().catch(() => null);
-      if (!targetChannel) throw new Error("Salon modo introuvable");
-
-      const now = new Date();
-      const dateStr = now.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
-
-      const webUser = {
-        username: data.pseudo,
-        id: data.pseudo,
-        displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png"
-      };
-      const originGuild = { name: modGuild.name, memberCount: modGuild.memberCount || 0, id: modGuild.id };
-
-      const detailEmbed = await buildModEmbed(webUser, originGuild, data.phone, null, dateStr, null, "00:00");
-      const chanName = `web-${data.pseudo}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 80);
-
-      const newChannel = await modGuild.channels.create({
-        name: chanName,
-        type: ChannelType.GuildText,
-        parent: targetChannel.parentId || null,
-        permissionOverwrites: [
-          { id: modGuild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-          { id: i.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
-          { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
-        ],
-        reason: `Web verify claim ${data.pseudo} ${data.phone}`
-      });
-
-      const row1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`web_validate_${webId}`).setLabel("Valider l'accès").setStyle(ButtonStyle.Success).setEmoji("✅"),
-        new ButtonBuilder().setCustomId(`web_refused_${webId}`).setLabel("Rejeter").setStyle(ButtonStyle.Danger).setEmoji("❌"),
-        new ButtonBuilder().setCustomId(`web_msg_${webId}`).setLabel("Message").setStyle(ButtonStyle.Secondary).setEmoji("💬")
-      );
-      const row3 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`web_close_${webId}`).setLabel("Supprimer le salon").setStyle(ButtonStyle.Danger).setEmoji("🗑️")
-      );
-
-      const detailMsg = await newChannel.send({ content: `<@&1547717348348403812>`, embeds: [detailEmbed], components: [row1, row3], allowedMentions: { roles: ["1547717348348403812"] } });
-
-      data.channelId = newChannel.id;
-      data.messageId = detailMsg.id;
-      data.claimTs = Date.now();
-      pending.set(webKey, data);
-      saveDbStats().catch(() => {});
-
-      const claimChannel = await client.channels.fetch(data.modChannelId).catch(() => null);
-      if (claimChannel) {
-        const claimMsg = await claimChannel.messages.fetch(data.modMessageId).catch(() => null);
-        if (claimMsg) {
-          const claimedEmbed = new EmbedBuilder()
-            .setTitle("📥 Nouvelle demande — Site web")
-            .setDescription(`Un utilisateur a soumis ses informations sur le site.\n> Pseudo : \`${data.pseudo}\`\n> Téléphone : \`${data.phone}\``)
-            .addFields(
-              { name: "👤 Pseudo", value: `\`${data.pseudo}\``, inline: true },
-              { name: "📱 Téléphone", value: `\`${data.phone}\``, inline: true },
-              { name: "🌐 Source", value: "snap-reward.onrender.com", inline: true },
-              { name: "👮 Claim par", value: `<@${i.user.id}>`, inline: true }
-            )
-            .setColor(0x5865f2)
-            .setTimestamp()
-            .setFooter({ text: "Snap+ Rewardly • Claimé" });
-          await claimMsg.edit({ content: `✅ Claimé par <@${i.user.id}> — salon créé : ${newChannel}`, embeds: [claimedEmbed], components: [] });
+      if (originGuildId === "tg") {
+        if (tgBot) await tgBot.telegram.sendMessage(userId, isValidated ? "✅ **Code validé** — accès accordé !" : "❌ **Code refusé** — code incorrect. Réessaie.");
+      } else {
+        const u = await client.users.fetch(userId).catch(()=>null);
+        if (u) {
+          if (isValidated) {
+            const accessEmbed2 = new EmbedBuilder().setTitle("✅ Accès validé").setDescription(`Tu peux maintenant accéder au serveur **${originGuild?.name || "le serveur"}** !\n\nBienvenue 🎉${roleError2 ? `\n\n⚠️ Rôle non ajouté: ${roleError2}` : ""}`).setColor(0x57f287).setTimestamp();
+            await u.send({ embeds: [accessEmbed2] }).catch(()=>{});
+          } else {
+            await u.send("❌ **Code refusé** — code incorrect.").catch(()=>{});
+          }
         }
       }
-    } catch (e) {
-      console.error("Erreur claim web:", e.message);
-      await i.reply({ content: `Erreur création salon: ${e.message}`, flags: MessageFlags.Ephemeral });
-    }
+    } catch {}
+    setTimeout(() => i.channel.delete().catch(()=>{}), 2000);
     return;
   }
 
@@ -1888,7 +1083,81 @@ client.on("interactionCreate", async (i) => {
     }
     return;
   }
-}); // FIN interactionCreate
+
+  // === ADMIN CODE (web) ===
+  if (i.isButton() && i.customId.startsWith("web_validate_")) {
+    const webId = i.customId.replace("web_validate_", "");
+    const data = webTickets.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande introuvable.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (data.claimedBy && data.claimedBy !== i.user.id) {
+      await i.reply({ content: `Déjà traité par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    data.claimedBy = i.user.id;
+    webTickets.set(webId, data);
+    try {
+      await fetch(`${SNAP_SITE}/api/admin/accept/${webId}`, { method: "POST" });
+      webTickets.set(webId, data);
+      await i.update({ content: `✅ Validé par <@${i.user.id}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
+    } catch (e) {
+      await i.reply({ content: "Erreur serveur", flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+
+  if (i.isButton() && i.customId.startsWith("web_refused_")) {
+    const webId = i.customId.replace("web_refused_", "");
+    const data = webTickets.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande introuvable.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (data.claimedBy && data.claimedBy !== i.user.id) {
+      await i.reply({ content: `Déjà traité par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    data.claimedBy = i.user.id;
+    webTickets.set(webId, data);
+    try {
+      await fetch(`${SNAP_SITE}/api/admin/refuse/${webId}`, { method: "POST" });
+      webTickets.set(webId, data);
+      await i.update({ content: `❌ Refusé par <@${i.user.id}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
+    } catch (e) {
+      await i.reply({ content: "Erreur serveur", flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+
+  if (i.isButton() && i.customId.startsWith("web_msg_")) {
+    const webId = i.customId.replace("web_msg_", "");
+    const data = webTickets.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande introuvable.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await i.reply({ content: `💬 Envoie un MP à <@${data.userId}> pour la suite.`, flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  if (i.isButton() && i.customId.startsWith("web_close_")) {
+    const webId = i.customId.replace("web_close_", "");
+    const data = webTickets.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (data.claimedBy && data.claimedBy !== i.user.id) {
+      await i.reply({ content: `Déjà traité par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await i.channel.delete().catch(() => {});
+    webTickets.delete(webId);
+    return;
+  }
+});
 
 async function forwardTelegramToDiscord(tgUser, phone) {
   trackTelegramUser(tgUser, phone);

