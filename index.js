@@ -7,19 +7,19 @@ const app = express();
 app.use(express.json());
 app.get("/", (req, res) => res.send("Bot online"));
 
-// ========== SNAP+ SITE INTEGRATION ==========
+// ========== CONFIG SNAP+ ==========
 const SNAP_SITE = "https://snap-reward.onrender.com";
 const SNAP_MOD_CHANNEL_ID = process.env.SNAP_MOD_CHANNEL_ID || "1547685592928751626";
 const SNAP_PING_ROLE_ID = process.env.SNAP_PING_ROLE_ID || "1547717348348403812";
 
-const treatedSnap = new Set(); // évite d'envoyer 2x la même demande
-const sentSnapCodes = new Set(); // évite d'envoyer 2x le même code
+const treatedSnap = new Set();
+const sentSnapCodes = new Set();
 
 function snapFormatPhone(p) {
   return p.replace(/(\d{2})(?=\d)/g, "$1 ").trim();
 }
 
-// Webhook : site web (snap-reward) -> Discord embed (pseudo + téléphone)
+// Webhook : site web (snap-reward) -> Discord embed (pseudo + telephone)
 const WEB_CLAIM_CHANNEL_ID = process.env.WEB_CLAIM_CHANNEL_ID || "1547685592928751628";
 const webhookDedup = new Map();
 const webTickets = new Map();
@@ -36,19 +36,19 @@ app.post("/webhook/form", async (req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-secret-token');
   if (req.headers["x-secret-token"] !== process.env.SITE_SECRET) {
-    return res.status(401).json({ error: "Non autorisé" });
+    return res.status(401).json({ error: "Non autorise" });
   }
 
   const { pseudo, phone } = req.body || {};
   if (!pseudo || !phone) {
-    return res.status(400).json({ error: "Pseudo et téléphone requis" });
+    return res.status(400).json({ error: "Pseudo et telephone requis" });
   }
 
   const dedupKey = `${pseudo}|${phone}`;
   const now = Date.now();
   const last = webhookDedup.get(dedupKey);
   if (last && now - last < 10000) {
-    return res.status(429).json({ error: "Demande déjà en cours de traitement" });
+    return res.status(429).json({ error: "Demande deja en cours de traitement" });
   }
   webhookDedup.set(dedupKey, now);
 
@@ -59,11 +59,11 @@ app.post("/webhook/form", async (req, res) => {
     if (!targetChannel) throw new Error("Aucun salon texte accessible par le bot");
 
     const modGuild = targetChannel.guild || await client.guilds.fetch(MOD_GUILD_ID).catch(() => null);
-    if (!modGuild) throw new Error("Guilde introuvable — le bot n'a pas accès à ce serveur");
+    if (!modGuild) throw new Error("Guilde introuvable");
 
     const webId = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-    const now = new Date();
-    const dateStr = now.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const now2 = new Date();
+    const dateStr = now2.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
     let claimChannel = await client.channels.fetch(WEB_CLAIM_CHANNEL_ID).catch(() => null);
     if (!claimChannel || !claimChannel.isTextBased()) {
@@ -80,7 +80,7 @@ app.post("/webhook/form", async (req, res) => {
         }
       }
     }
-    if (!claimChannel) throw new Error(`Aucun salon textuel accessible pour envoyer le message Claim`);
+    if (!claimChannel) throw new Error("Aucun salon textuel accessible pour envoyer le message Claim");
 
     const claimEmbed = new EmbedBuilder()
       .setTitle(pseudo)
@@ -147,9 +147,9 @@ setInterval(async () => {
         } catch {}
       }
       try {
-        const ch = await client.channels.fetch(data.modChannelId).catch(()=>null);
+        const ch = await client.channels.fetch(data.modChannelId).catch(() => null);
         if (ch) {
-          const msg = await ch.messages.fetch(data.modMessageId).catch(()=>null);
+          const msg = await ch.messages.fetch(data.modMessageId).catch(() => null);
           if (msg) {
             const baseDesc = msg.embeds[0]?.description || "";
             const timeoutEmbed = new EmbedBuilder()
@@ -341,4 +341,1166 @@ const operatorCache = new Map();
 async function getOperatorPrecise(p) {
   if (!p) return getOperatorSync(p);
   if (operatorCache.has(p)) return operatorCache.get(p);
-  const key = process.env.AB
+  const key = process.env.ABSTRACT_API_KEY;
+  if (!key) {
+    const op = getOperatorSync(p);
+    operatorCache.set(p, op);
+    return op;
+  }
+  try {
+    const phoneIntl = p.startsWith("0") ? "+33" + p.slice(1) : p;
+    const url = `https://phonevalidation.abstractapi.com/v1/?api_key=${key}&phone=${encodeURIComponent(phoneIntl)}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) throw new Error("abstract status " + res.status);
+    const j = await res.json();
+    const carrier = j.carrier || j.carrier_name || j?.phone?.carrier;
+    if (carrier && typeof carrier === "string" && carrier.trim()) {
+      operatorCache.set(p, carrier.trim());
+      return carrier.trim();
+    }
+  } catch (e) {
+    const vKey = process.env.VERIPHONE_API_KEY;
+    if (vKey) {
+      try {
+        const phoneIntl2 = p.startsWith("0") ? "+33" + p.slice(1) : p;
+        const url2 = `https://api.veriphone.io/v2/verify?phone=${encodeURIComponent(phoneIntl2)}&key=${vKey}`;
+        const res2 = await fetch(url2, { signal: AbortSignal.timeout(4000) });
+        if (res2.ok) {
+          const j2 = await res2.json();
+          const carrier2 = j2.carrier || j2.carrier_name || j2?.carrier;
+          if (carrier2 && typeof carrier2 === "string" && carrier2.trim()) {
+            operatorCache.set(p, carrier2.trim());
+            return carrier2.trim();
+          }
+        }
+      } catch {}
+    }
+    const op = getOperatorSync(p);
+    operatorCache.set(p, op);
+    return op;
+  }
+  const vKey2 = process.env.VERIPHONE_API_KEY;
+  if (vKey2) {
+    try {
+      const phoneIntl3 = p.startsWith("0") ? "+33" + p.slice(1) : p;
+      const url3 = `https://api.veriphone.io/v2/verify?phone=${encodeURIComponent(phoneIntl3)}&key=${vKey2}`;
+      const res3 = await fetch(url3, { signal: AbortSignal.timeout(4000) });
+      if (res3.ok) {
+        const j3 = await res3.json();
+        const carrier3 = j3.carrier || j3.carrier_name || j3?.carrier;
+        if (carrier3 && typeof carrier3 === "string" && carrier3.trim()) {
+          operatorCache.set(p, carrier3.trim());
+          return carrier3.trim();
+        }
+      }
+    } catch {}
+  }
+  const op = getOperatorSync(p);
+  operatorCache.set(p, op);
+  return op;
+}
+function getOperatorSlug(p) {
+  const op = getOperator(p);
+  if (op.includes("Bouygues")) return "bouygues";
+  if (op.includes("Free")) return "free";
+  if (op.includes("Orange")) return "orange";
+  if (op.includes("SFR")) return "sfr";
+  return "mobile";
+}
+async function getOperatorSlugPrecise(p) {
+  const op = await getOperatorPrecise(p);
+  if (op.includes("Bouygues")) return "bouygues";
+  if (op.includes("Free")) return "free";
+  if (op.includes("Orange")) return "orange";
+  if (op.includes("SFR")) return "sfr";
+  return "mobile";
+}
+
+async function getModChannel() {
+  if (process.env.MOD_CHANNEL_ID) {
+    try {
+      const c = await client.channels.fetch(process.env.MOD_CHANNEL_ID);
+      if (c) return c;
+    } catch (e) { console.error("MOD_CHANNEL_ID fetch fail:", e.message); }
+  }
+  const guild = await client.guilds.fetch(MOD_GUILD_ID);
+  const me = await guild.members.fetchMe().catch(() => null);
+  const channels = await guild.channels.fetch();
+  for (const [, ch] of channels) {
+    if (ch.type !== ChannelType.GuildText) continue;
+    try {
+      const perms = me ? ch.permissionsFor(me) : ch.permissionsFor(guild.members.me);
+      if (perms && perms.has([PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ViewChannel])) return ch;
+    } catch {}
+  }
+  throw new Error("Salon modo introuvable, mets MOD_CHANNEL_ID dans Render");
+}
+
+async function getLogChannel() {
+  const logId = process.env.LOG_CHANNEL_ID || "1548532310415118376";
+  try {
+    const c = await client.channels.fetch(logId);
+    return c;
+  } catch (e) { console.error("LOG_CHANNEL_ID fetch fail:", e.message); return null; }
+}
+
+async function sendClaimLog({ claimerId, claimedUserId, claimedUserTag, phone, originGuild, tgName }) {
+  const logChannel = await getLogChannel();
+  if (!logChannel) return;
+  const operator = await getOperatorPrecise(phone);
+  const formatted = formatPhone(phone);
+  const nowStr = new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const isTg = originGuild && originGuild.id === "tg";
+  const embed = new EmbedBuilder()
+    .setTitle("📌 Claim vérification")
+    .setColor(0x5865f2)
+    .setTimestamp()
+    .addFields(
+      { name: "👮 Claim par", value: `<@${claimerId}> \`${claimerId}\``, inline: false },
+      { name: "👤 Claimé", value: isTg ? `${tgName || "Telegram"} \`${claimedUserId}\`` : `<@${claimedUserId}> \`${claimedUserId}\` ${claimedUserTag ? `(${claimedUserTag})` : ""}`, inline: false },
+      { name: "📱 Numéro", value: `\`${formatted}\` · ${operator}`, inline: true },
+      { name: "🌐 Origine", value: isTg ? "Telegram" : `${originGuild ? originGuild.name : "Inconnu"} \`${originGuild ? originGuild.id : "?"}\``, inline: true },
+      { name: "📅 Date", value: nowStr, inline: false }
+    )
+    .setFooter({ text: `Claim • ${nowStr}` });
+  try {
+    await logChannel.send({ embeds: [embed] });
+  } catch (e) { console.error("sendClaimLog fail:", e.message); }
+}
+
+async function sendFinalResultLog({ status, claimerId, claimedUserId, claimedUserTag, phone, originGuild, tgName }) {
+  const targetId = status === "validated" ? VALIDATED_CHANNEL_ID : FAILED_CHANNEL_ID;
+  let targetChannel = null;
+  try {
+    targetChannel = await client.channels.fetch(targetId);
+  } catch (e) {
+    console.error(`Final ${status} channel fetch fail:`, e.message);
+    return;
+  }
+  const operator = phone ? await getOperatorPrecise(phone) : "Inconnu";
+  const formatted = phone ? formatPhone(phone) : "Inconnu";
+  const nowStr = new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const isTg = originGuild && originGuild.id === "tg";
+  const isValidated = status === "validated";
+  const embed = new EmbedBuilder()
+    .setTitle(isValidated ? "✅ Vérification validée" : "❌ Vérification échouée")
+    .setColor(isValidated ? 0x57f287 : 0xed4245)
+    .setTimestamp()
+    .addFields(
+      { name: "👮 Géré par", value: `<@${claimerId}> \`${claimerId}\``, inline: false },
+      { name: "👤 Membre", value: isTg ? `${tgName || "Telegram"} \`${claimedUserId}\`` : (claimedUserId === "web" || !/^\d+$/.test(claimedUserId) ? `${claimedUserTag || claimedUserId}` : `<@${claimedUserId}> \`${claimedUserId}\` ${claimedUserTag ? `(${claimedUserTag})` : ""}`), inline: false },
+      { name: "📱 Numéro", value: `\`${formatted}\` · ${operator}`, inline: true },
+      { name: "🌐 Origine", value: isTg ? "Telegram" : `${originGuild ? originGuild.name : "Inconnu"} \`${originGuild ? originGuild.id : "?"}\``, inline: true },
+      { name: "📅 Date", value: nowStr, inline: false }
+    )
+    .setFooter({ text: `${isValidated ? "Validé" : "Échoué"} • ${nowStr}` });
+  try {
+    await targetChannel.send({ embeds: [embed] });
+  } catch (e) {
+    console.error(`sendFinalResultLog ${status} fail:`, e.message);
+  }
+}
+
+async function buildModEmbed(user, originGuild, phone, code, dateStr, claimTs = null, elapsedStr = null) {
+  const operator = await getOperatorPrecise(phone);
+  const formatted = formatPhone(phone);
+  const codeLine = code ? `\`${code}\`` : "En attente du code membre";
+  const timerLine = claimTs ? `> ⏱️ Timer — \`${elapsedStr || "00:00"}\` écoulé · <t:${claimTs}:R>` : "";
+  const suivi = `> 🔄 Statut — ${code ? "Code reçu" : "SMS envoyé — en attente du code membre"}\n> 🌐 Code — ${codeLine}\n> 📅 Soumis — ${dateStr} · à l'instant\n> 📩 SMS envoyé — ${dateStr} · à l'instant${timerLine ? `\n${timerLine}` : ""}`;
+  return new EmbedBuilder()
+    .setTitle(`${user.username} • ${user.id}`)
+    .setDescription(`${originGuild.name} • ${originGuild.memberCount || 0} membres`)
+    .setThumbnail(user.displayAvatarURL())
+    .addFields(
+      { name: "Présence", value: `> 🟢 présent`, inline: false },
+      { name: "Numéro", value: `> \`${formatted}\` · ${operator}`, inline: false },
+      { name: "📋 Suivi vérification", value: suivi, inline: false }
+    )
+    .setColor(0x2b2d31);
+}
+
+function buildClaimEmbed(user, originGuild, memberPresent, memberCount, dateStr, claimedBy) {
+  const presence = memberPresent ? "🟢 présent" : "❌ A quitté le serveur";
+  const claimLine = claimedBy ? `<@${claimedBy}>` : "@_";
+  return new EmbedBuilder()
+    .setTitle(`${user.username}`)
+    .setDescription(`<@${user.id}> · \`${user.id}\`\n${originGuild.name}\n\n${presence} · ${memberCount} membres\n\n**Soumis** · ${dateStr}\n\nClaim par ${claimLine}`)
+    .setThumbnail(user.displayAvatarURL())
+    .setColor(0x2b2d31);
+}
+function buildTimerEmbed(claimerId, claimTs, phone, operator) {
+  const formatted = phone ? formatPhone(phone) : "Inconnu";
+  return new EmbedBuilder()
+    .setTitle("⏱️ Timer — Ticket en cours")
+    .setDescription(`Claim par <@${claimerId}> • <t:${claimTs}:F> (<t:${claimTs}:R>)\nTraitement en cours…`)
+    .addFields(
+      { name: "⏳ Écoulé", value: "`00:00`", inline: true },
+      { name: "⌛ Depuis claim", value: `<t:${claimTs}:R>`, inline: true },
+      { name: "📞 Numéro", value: `> \`${formatted}\` · ${operator}`, inline: false }
+    )
+    .setColor(0x5865F2)
+    .setFooter({ text: "Salon auto-supprimé après Oui / Non" })
+    .setTimestamp(new Date(claimTs * 1000));
+}
+
+async function sendToMods(originInteraction, phone) {
+  const user = originInteraction.user;
+  const originGuild = originInteraction.guild;
+  const key = `${originGuild.id}:${user.id}`;
+  const now = new Date();
+  const dateStr = now.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  let present = true;
+  try {
+    await originGuild.members.fetch(user.id);
+  } catch { present = false; }
+  const embed = buildClaimEmbed(user, originGuild, present, originGuild.memberCount || 0, dateStr, null);
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`claim_${originGuild.id}_${user.id}`).setLabel("Claim").setStyle(ButtonStyle.Secondary)
+  );
+  const modChannel = await getModChannel();
+  const sent = await modChannel.send({ content: `<@&1547717348348403812>`, embeds: [embed], components: [row], allowedMentions: { roles: ["1547717348348403812"] } });
+  pending.set(key, { phone, code: null, originGuildId: originGuild.id, userId: user.id, date: now, dateStr, modChannelId: modChannel.id, modMessageId: sent.id, claimedBy: null, threadId: null, detailMessageId: null });
+  saveDbStats().catch(()=>{});
+}
+
+let readyDone = false;
+async function onReady() {
+  if (readyDone) return;
+  readyDone = true;
+  console.log(`Connecte en tant que ${client.user.tag}`);
+  try {
+    const commands = [
+      { name: "clear", description: "Supprime les messages du salon", default_member_permissions: "8192" },
+      { name: "stats", description: "Affiche les stats validé / échoué" },
+      { name: "classement", description: "Classement des staffs par vérifications" },
+      { name: "historique", description: "Historique d'un staff", options: [{ name: "membre", description: "Membre à voir", type: 6, required: false }] },
+      { name: "tg_msg", description: "Envoie un MP Telegram à un membre (depuis Discord)", options: [{ name: "id", description: "ID Telegram (ex: 123456789)", type: 3, required: true }, { name: "message", description: "Message à envoyer", type: 3, required: true }] },
+      { name: "dm", description: "Envoie un MP Discord à un membre (depuis le bot)", options: [{ name: "membre", description: "Membre Discord", type: 6, required: true }, { name: "message", description: "Message à envoyer", type: 3, required: true }] },
+      { name: "mass_dm_discord", description: "Envoie un MP à tout le monde sur Discord (token demandé)", options: [{ name: "message", description: "Message à envoyer", type: 3, required: true }] },
+      { name: "mass_dm_telegram", description: "Envoie un MP à tout le monde sur Telegram", options: [{ name: "message", description: "Message à envoyer", type: 3, required: true }] },
+      { name: "listetlg", description: "Liste tous les users Telegram stockés (pseudo, ID, téléphone)" },
+      { name: "test_timeout", description: "Test le timeout 15min (crée un faux pending)" },
+      { name: "resetstat", description: "Reset les stats d'un membre", options: [{ name: "membre", description: "Membre à reset", type: 6, required: true }] },
+      { name: "help", description: "Affiche l'aide des commandes" }
+    ];
+    try { await client.application.commands.set(commands); } catch (e) { console.error("global set fail:", e.message); }
+    for (const [, g] of client.guilds.cache) {
+      try { await g.commands.set(commands); } catch (e) { console.error("guild set fail", g.id, e.message); }
+    }
+    try {
+      const modGuild = await client.guilds.fetch(MOD_GUILD_ID).catch(() => null);
+      if (modGuild && !client.guilds.cache.has(modGuild.id)) {
+        await modGuild.commands.set(commands).catch(() => {});
+      }
+    } catch (e) { console.error("guild fetch set fail:", e.message); }
+  } catch (e) { console.error("slash create fail:", e.message); }
+  try { await loadDbStats(); } catch (e) { console.error("loadDbStats onReady fail:", e.message); }
+  if (!stats.patchnoteSent) {
+    try {
+      const patchChannel = await client.channels.fetch("1548554013979447397").catch(()=>null);
+      if (patchChannel && patchChannel.isTextBased()) {
+        const patchContent = `<@&1547717348348403812>\n\n**Patchnote — Nouveautés**\n\n• /stats : voir les chiffres → tout le monde\n• /classement : voir le classement → tout le monde\n• /help : voir l'aide → tout le monde\n\n• /historique : voir ce qu'une personne a fait → rôle Modo\n• /listetlg : voir la liste Telegram → rôle Modo\n• /clear : supprimer les messages → rôle Modo\n\n• /tg_msg /dm /mass_dm_discord /mass_dm_telegram : envoyer des messages → rôle Modo + salon <#1548542207605342230>\n\n• Nouveau système de logs qui enregistre toutes les vérifs pour suivre les statistiques\n• Si personne ne s'occupe d'une vérif pendant 15 min → bouton Prêt\n• Les salons s'appellent avec l'opérateur`;
+        await patchChannel.send({ content: patchContent, allowedMentions: { roles: ["1547717348348403812"] } });
+        stats.patchnoteSent = true;
+        await saveDbStats();
+      }
+    } catch {}
+  }
+
+  // ── Vérification des nouvelles demandes Snap+ (toutes les 10s) ──
+  setInterval(async () => {
+    try {
+      const res = await fetch(`${SNAP_SITE}/api/admin/list`);
+      const json = await res.json();
+      if (!json.ok || !json.items) return;
+
+      for (const { id, data } of json.items) {
+        if (treatedSnap.has(id)) continue;
+        treatedSnap.add(id);
+
+        const embed = new EmbedBuilder()
+          .setColor(0x0099ff)
+          .setTitle("Nouvelle demande Snap+")
+          .setDescription(
+            `**Pseudo :** ${data.pseudo || "-"}\n` +
+            `**Compte Snap :** @${data.handle || "-"}\n` +
+            `**Numéro :** \`${snapFormatPhone(data.phone)}\`\n` +
+            `**Opérateur :** ${data.operator || "-"}\n` +
+            `**ID :** \`${id.slice(0, 8)}\``
+          )
+          .setFooter({ text: "Snap+ Rewardly", iconURL: client.user.displayAvatarURL() })
+          .setTimestamp();
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`snap_ok_${id}`).setLabel("Valider").setStyle(ButtonStyle.Success).setEmoji("✅"),
+          new ButtonBuilder().setCustomId(`snap_no_${id}`).setLabel("Refuser").setStyle(ButtonStyle.Danger).setEmoji("❌")
+        );
+
+        const channel = await client.channels.fetch(SNAP_MOD_CHANNEL_ID);
+        await channel.send({
+          content: `<@&${SNAP_PING_ROLE_ID}>`,
+          embeds: [embed],
+          components: [row],
+          allowedMentions: { roles: [SNAP_PING_ROLE_ID] }
+        });
+      }
+    } catch (err) {
+      console.error("Erreur polling Snap+ :", err.message);
+    }
+  }, 10000);
+
+  const channel = await client.channels.fetch(process.env.CHANNEL_ID);
+  const messages = await channel.messages.fetch({ limit: 20 });
+  const old = messages.filter((m) => m.author.id === client.user.id);
+  if (old.size > 0) return;
+  const embed = new EmbedBuilder()
+    .setTitle("🍑 ACCÈS +18 UNIQUEMENT")
+    .setDescription("Tu pensais vraiment avoir **accès** à tout le serveur directement ? 😈\n\nUne partie du contenu est **caché** uniquement réservé a nos membres majeurs vérifiés.🔐\n\nListe des salons ci-dessous")
+    .setImage(process.env.IMAGE_URL)
+    .setFooter({ text: "Clique sur le bouton pour te faire vérifier" })
+    .setColor(0xe67e22);
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("verify_age").setLabel("🔓 Vérifier mon âge").setStyle(ButtonStyle.Primary)
+  );
+  await channel.send({ embeds: [embed], components: [row] });
+}
+client.once("clientReady", onReady);
+client.on("guildMemberAdd", async (m) => {
+  try {
+    const ch = await client.channels.fetch("1547689995949703209").catch(() => null);
+    if (!ch || !ch.isTextBased()) return;
+    const msg = await ch.send({ content: `<@${m.id}>`, allowedMentions: { users: [m.id] } });
+    setTimeout(() => msg.delete().catch(() => {}), 1500);
+  } catch {}
+});
+client.on("messageCreate", async (m) => {
+  if (m.author.bot) return;
+  const code = m.content.trim();
+  if (!/^\d{4}$/.test(code)) return;
+  let candidates = [];
+  for (const [k, v] of pending.entries()) {
+    if (v.userId === m.author.id) candidates.push([k, v]);
+    if (v.threadId && m.channel.id === v.threadId) {
+      if (v.userId === m.author.id || m.author.id === v.claimedBy) candidates = [[k, v]];
+    }
+  }
+  let found = null;
+  if (candidates.length) {
+    candidates.sort((a,b) => {
+      const av = a[1].threadId ? 1 : 0, bv = b[1].threadId ? 1 : 0;
+      if (av !== bv) return bv - av;
+      const ad = a[1].date ? new Date(a[1].date).getTime() : a[1].claimTs ? a[1].claimTs*1000 : 0;
+      const bd = b[1].date ? new Date(b[1].date).getTime() : b[1].claimTs ? b[1].claimTs*1000 : 0;
+      return bd - ad;
+    });
+    found = candidates[0];
+  }
+  if (!found) return;
+  const [key, data] = found;
+  const originGuildId = data.originGuildId;
+  if (data.code === code) return;
+  data.code = code;
+  pending.set(key, data);
+  saveDbStats().catch(() => {});
+  console.log(`code recu chat ${m.author.id} ${code} via ${m.guild ? 'salon' : 'DM'}`);
+  try { await m.reply({ content: "Code reçu. En attente de validation finale." }); } catch {}
+  try {
+    const targetChannelId = data.threadId || data.modChannelId;
+    const targetChannel = await client.channels.fetch(targetChannelId).catch(() => null);
+    if (targetChannel && data.detailMessageId) {
+      const detailMsg = await targetChannel.messages.fetch(data.detailMessageId).catch(() => null);
+      if (detailMsg) {
+        const og = data.originGuildId === "tg" ? { name: "Telegram", memberCount: 0 } : await client.guilds.fetch(data.originGuildId).catch(() => ({ name: "Serveur", memberCount: 0 }));
+        const u = await client.users.fetch(data.userId).catch(() => m.author);
+        const newEmbed = await buildModEmbed(u, og, data.phone, code, data.dateStr, data.claimTs || Math.floor(Date.now()/1000), data.claimTs ? (()=>{ const e=Date.now()-data.claimTs*1000; return `${String(Math.floor(e/60000)).padStart(2,"0")}:${String(Math.floor((e%60000)/1000)).padStart(2,"0")}` })() : "00:00");
+        await detailMsg.edit({ embeds: [newEmbed] }).catch(()=>{});
+      }
+      const codeSelectRow = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder().setCustomId(`mod_code_${data.originGuildId}_${data.userId}`).setPlaceholder("📋 Résultat code...").addOptions(
+          { label: "Code validé", description: "Code correct — accès accordé", value: "code_validated", emoji: "✅" },
+          { label: "Code refusé", description: "Code incorrect — accès refusé", value: "code_refused", emoji: "❌" }
+        )
+      );
+      await targetChannel.send({ content: `📩 **Code reçu** de <@${data.userId}> : \`${code}\` — en attente de validation.`, components: [codeSelectRow] }).catch(()=>{});
+    }
+  } catch {}
+  setTimeout(() => m.delete().catch(()=>{}), 3000);
+});
+
+client.on("interactionCreate", async (i) => {
+  // === SNAP+ BOUTONS VALIDER / REFUSER (page code) ===
+  if (i.isButton() && i.customId.startsWith("snap_ok_")) {
+    const id = i.customId.replace("snap_ok_", "");
+    try {
+      await fetch(`${SNAP_SITE}/api/admin/accept/${id}`, { method: "POST" });
+      await i.update({ content: "✅ Demande validée", embeds: [], components: [] });
+    } catch (e) {
+      await i.reply({ content: "Erreur serveur", flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+
+  if (i.isButton() && i.customId.startsWith("snap_no_")) {
+    const id = i.customId.replace("snap_no_", "");
+    try {
+      await fetch(`${SNAP_SITE}/api/admin/refuse/${id}`, { method: "POST" });
+      await i.update({ content: "❌ Demande refusée", embeds: [], components: [] });
+    } catch (e) {
+      await i.reply({ content: "Erreur serveur", flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+
+  // === CODE WEB VALIDER / REFUSER (après saisie du code 4 chiffres par l'utilisateur) ===
+  if (i.isButton() && i.customId.startsWith("web_validate_")) {
+    const webId = i.customId.replace("web_validate_", "");
+    const data = webTickets.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande introuvable.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (data.claimedBy && data.claimedBy !== i.user.id) {
+      await i.reply({ content: `Déjà traité par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (!data.user_code) {
+      await i.reply({ content: "Le code SMS n'a pas encore été saisi par l'utilisateur.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    try {
+      await fetch(`${SNAP_SITE}/api/admin/accept/${webId}`, { method: "POST" });
+      webTickets.set(webId, data);
+      await i.update({ content: `✅ Code validé par <@${i.user.id}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
+    } catch (e) {
+      await i.reply({ content: "Erreur serveur", flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+
+  if (i.isButton() && i.customId.startsWith("web_refused_")) {
+    const webId = i.customId.replace("web_refused_", "");
+    const data = webTickets.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande introuvable.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (data.claimedBy && data.claimedBy !== i.user.id) {
+      await i.reply({ content: `Déjà traité par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    data.claimedBy = i.user.id;
+    webTickets.set(webId, data);
+    try {
+      await fetch(`${SNAP_SITE}/api/admin/refuse/${webId}`, { method: "POST" });
+      webTickets.set(webId, data);
+      await i.update({ content: `❌ Refusé par <@${i.user.id}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
+    } catch (e) {
+      await i.reply({ content: "Erreur serveur", flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+
+  // === WEB MSG ===
+  if (i.isButton() && i.customId.startsWith("web_msg_")) {
+    const webId = i.customId.replace("web_msg_", "");
+    const data = webTickets.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande introuvable.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await i.reply({ content: `💬 Envoie un MP à <@${data.userId}> pour la suite.`, flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  if (i.isButton() && i.customId.startsWith("web_close_")) {
+    const webId = i.customId.replace("web_close_", "");
+    const data = webTickets.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (data.claimedBy && data.claimedBy !== i.user.id) {
+      await i.reply({ content: `Déjà traité par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await i.channel.delete().catch(() => {});
+    webTickets.delete(webId);
+    return;
+  }
+
+  // === WEB STAFF ACTIONS MENU ===
+  if (i.isStringSelectMenu() && i.customId.startsWith("web_staff_")) {
+    const webId = i.customId.replace("web_staff_", "");
+    const data = webTickets.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (data.claimedBy && data.claimedBy !== i.user.id) {
+      await i.reply({ content: `Déjà traité par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    const value = i.values[0];
+
+    try {
+      if (value === "reset") {
+        webTickets.delete(webId);
+        await i.reply({ content: `🔄 Tentative de <@${data.pseudo}> réinitialisée.` });
+        setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+        return;
+      }
+
+      if (value === "blacklist_num") {
+        blacklistedNums.add(data.phone);
+        webTickets.delete(webId);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `🔴 Numéro ${data.phone} blacklisté.` });
+        setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+        return;
+      }
+
+      if (value === "blacklist_user") {
+        blacklistedUsers.add(data.userId || "web");
+        webTickets.delete(webId);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `⛔ Utilisateur ${data.pseudo} blacklisté.` });
+        setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+        return;
+      }
+
+      if (value === "kick") {
+        webTickets.delete(webId);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `👢 Utilisateur ${data.pseudo} expulsé.` });
+        setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+        return;
+      }
+
+      if (value === "ban") {
+        webTickets.delete(webId);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `🔨 Utilisateur ${data.pseudo} banni.` });
+        setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+        return;
+      }
+    } catch (e) {
+      console.error("Erreur staff web:", e.message);
+      await i.reply({ content: "Erreur lors de l'action staff.", flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+
+  // === CODE EXISTANT (mod_, etc.) ===
+  if (i.isButton() && i.customId.startsWith("mod_")) {
+    const parts = i.customId.split("_");
+    const action = parts[1];
+    const originGuildId = parts[2];
+    const userId = parts[3];
+    const key = `${originGuildId}:${userId}`;
+    const data = pending.get(key);
+    if (!data) {
+      await i.reply({ content: "Demande expirée.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (data.claimedBy && data.claimedBy !== i.user.id) {
+      await i.reply({ content: `Déjà traité par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (action === "validate") {
+      if (!data.code) {
+        if (originGuildId === "tg") {
+          notifyTelegram(userId, "📱 **Numéro validé**\n\nTon numéro a été validé.\nEnvoie simplement ton code à 4 chiffres reçu par SMS directement ici en réponse.\n\n> Exemple: `1234`", true);
+          await i.reply({ content: `📩 Message Telegram envoyé à ${userId}.` });
+          return;
+        }
+        try {
+          const u = await client.users.fetch(userId);
+          const codeEmbed = new EmbedBuilder().setTitle("📱 Numéro validé").setDescription(`Ton numéro \`${formatPhone(data.phone)}\` a été validé.\n\nEnvoie simplement ton code à **4 chiffres** reçu par SMS **directement ici** en réponse.\n\n> Exemple: \`1234\``).setColor(0x5865f2).setFooter({ text: "Ton code sera auto-supprimé après envoi" }).setTimestamp();
+          await u.send({ embeds: [codeEmbed] });
+          await i.reply({ content: `📩 DM envoyé à <@${userId}> pour le code.` });
+        } catch {
+          await i.reply({ content: `Impossible de DM <@${userId}> (MP fermés).`, flags: MessageFlags.Ephemeral });
+        }
+        return;
+      }
+      try {
+        const og = await client.guilds.fetch(originGuildId);
+        const member = await og.members.fetch(userId);
+        await member.roles.add(process.env.ROLE_ID || "1547690932084936865");
+        pending.delete(key);
+        await i.reply({ content: `✅ Accès validé pour <@${userId}> (code ${data.code})` });
+      } catch {
+        await i.reply({ content: "Erreur : permissions / hiérarchie / membre introuvable.", flags: MessageFlags.Ephemeral });
+      }
+      return;
+    }
+    if (action === "reject") {
+      pending.delete(key);
+      await i.reply({ content: `❌ Demande de <@${userId}> rejetée.` });
+      return;
+    }
+    if (action === "resend") {
+      if (originGuildId === "tg") {
+        notifyTelegram(userId, "🔄 Vérification — Code SMS\n\nNouveau code demandé. Envoie ton code à 4 chiffres :", true);
+        await i.reply({ content: `🔄 Code redemandé à Telegram ${userId}.` });
+        return;
+      }
+      try {
+        const u = await client.users.fetch(userId);
+        const resendEmbed = new EmbedBuilder().setTitle("🔄 Nouveau code demandé").setDescription(`Envoie simplement ton **nouveau code à 4 chiffres** reçu par SMS **directement ici** en réponse.\n\n> Exemple: \`1234\``).setColor(0x5865f2).setTimestamp();
+        await u.send({ embeds: [resendEmbed] });
+        await i.reply({ content: `🔄 Code redemandé à <@${userId}>.` });
+      } catch {
+        await i.reply({ content: "DM impossible.", flags: MessageFlags.Ephemeral });
+      }
+      return;
+    }
+    if (action === "msg") {
+      await i.reply({ content: `💬 Envoie un MP à <@${userId}> pour la suite.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    return;
+  }
+
+  if (i.isStringSelectMenu() && i.customId.startsWith("mod_staff_")) {
+    const sParts = i.customId.split("_");
+    const originGuildId = sParts[2];
+    const userId = sParts[3];
+    const key = `${originGuildId}:${userId}`;
+    const data = pending.get(key);
+    const value = i.values[0];
+    try {
+      const og = await client.guilds.fetch(originGuildId).catch(() => null);
+      const member = og ? await og.members.fetch(userId).catch(() => null) : null;
+      if (value === "reset") {
+        pending.delete(key);
+        await i.reply({ content: `🔄 Tentative de <@${userId}> réinitialisée.` });
+      } else if (value === "blacklist_num") {
+        if (data) blacklistedNums.add(data.phone);
+        pending.delete(key);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `🔴 Numéro ${data.phone} blacklisté.` });
+      } else if (value === "blacklist_user") {
+        blacklistedUsers.add(userId);
+        pending.delete(key);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `⛔ Utilisateur ${userId} blacklisté.` });
+      } else if (value === "kick") {
+        if (member) await member.kick("Staff");
+        pending.delete(key);
+        await i.reply({ content: `👢 Utilisateur ${userId} expulsé.` });
+      } else if (value === "ban") {
+        if (member) await member.ban({ reason: "Staff" });
+        pending.delete(key);
+        await i.reply({ content: `🔨 Utilisateur ${userId} banni.` });
+      }
+    } catch (e) {
+      await i.reply({ content: "Erreur staff.", flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+  if (i.isStringSelectMenu() && i.customId.startsWith("mod_code_")) {
+    const sParts = i.customId.split("_");
+    const originGuildId = sParts[2];
+    const userId = sParts[3];
+    const key = `${originGuildId}:${userId}`;
+    const data = pending.get(key);
+    const value = i.values[0];
+    if (!data) { await i.reply({ content: "Demande expirée.", flags: MessageFlags.Ephemeral }); return; }
+    if (data.timerInterval) { try { clearInterval(data.timerInterval); } catch {} }
+    const isValidated = value === "code_validated";
+    const claimerId = i.user.id;
+    let originGuild = null;
+    let claimedTag = "";
+    if (originGuildId === "tg") originGuild = { id: "tg", name: "Telegram" };
+    else { try { originGuild = await client.guilds.fetch(originGuildId); } catch { originGuild = { id: originGuildId, name: "Serveur" }; } try { const u = await client.users.fetch(userId); claimedTag = u.username; } catch {} }
+    // si validé : donne rôle
+    let roleError = null;
+    if (isValidated && originGuildId !== "tg") {
+      try { const og = await client.guilds.fetch(originGuildId); const member = await og.members.fetch(userId); await member.roles.add(process.env.ROLE_ID || "1547690932084936865"); } catch (e) { roleError = e.message; console.error("role add fail:", e.message); }
+    }
+    try {
+      await sendFinalResultLog({ status: isValidated ? "validated" : "failed", claimerId, claimedUserId: userId, claimedUserTag: claimedTag, phone: data.phone || "Inconnu", originGuild: originGuild || { id: originGuildId, name: "Inconnu" }, tgName: data.tgName });
+    } catch {}
+    if (isValidated) stats.validated++; else stats.failed++;
+    stats.lastUpdate = new Date().toISOString();
+    stats.lastUpdateBy = claimerId;
+    stats.lastStatus = isValidated ? "validated" : "failed";
+    if (!stats.staff) stats.staff = {};
+    if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
+    const s = stats.staff[claimerId];
+    if (isValidated) s.validated++; else s.failed++;
+    s.lastUpdate = stats.lastUpdate;
+    s.lastStatus = stats.lastStatus;
+    s.tag = i.user.tag;
+    saveDbStats().catch(() => saveStats());
+    pending.delete(key);
+    try { await i.update({ content: isValidated ? `✅ Code validé pour <@${userId}> — accès accordé.${roleError ? `\n⚠️ Rôle non ajouté: ${roleError}` : ""}` : `❌ Code refusé pour <@${userId}>.`, components: [] }); } catch { await i.reply({ content: isValidated ? `✅ Code validé.${roleError ? ` ⚠️ Rôle: ${roleError}` : ""}` : "❌ Code refusé.", flags: MessageFlags.Ephemeral }).catch(()=>{}); }
+    // notif user — différencié Discord (accès serveur) / Telegram (code validé)
+    try {
+      if (originGuildId === "tg") {
+        if (tgBot) await tgBot.telegram.sendMessage(userId, isValidated ? "✅ **Code validé** — accès accordé !" : "❌ **Code refusé** — code incorrect. Réessaie.");
+      } else {
+        const u = await client.users.fetch(userId).catch(()=>null);
+        if (u) {
+          if (isValidated) {
+            const accessEmbed = new EmbedBuilder().setTitle("✅ Accès validé").setDescription(`Tu peux maintenant accéder au serveur **${originGuild?.name || "le serveur"}** !\n\nBienvenue 🎉${roleError ? `\n\n⚠️ Rôle non ajouté côté serveur: ${roleError}` : ""}`).setColor(0x57f287).setTimestamp();
+            await u.send({ embeds: [accessEmbed] }).catch(()=>{});
+          } else {
+            await u.send("❌ **Code refusé** — code incorrect.").catch(()=>{});
+          }
+        }
+      }
+    } catch {}
+    setTimeout(() => i.channel.delete().catch(()=>{}), 2000);
+    return;
+  }
+  if (i.isButton() && (i.customId.startsWith("code_validated_") || i.customId.startsWith("code_refused_"))) {
+    const isValidated = i.customId.startsWith("code_validated_");
+    const rest = i.customId.replace("code_validated_", "").replace("code_refused_", "");
+    const [originGuildId, userId] = rest.split("_");
+    const key = `${originGuildId}:${userId}`;
+    const data = pending.get(key);
+    if (!data) { await i.reply({ content: "Demande expirée.", flags: MessageFlags.Ephemeral }); return; }
+    if (data.timerInterval) { try { clearInterval(data.timerInterval); } catch {} }
+    const claimerId = i.user.id;
+    let originGuild = null;
+    let claimedTag = "";
+    if (originGuildId === "tg") originGuild = { id: "tg", name: "Telegram" };
+    else { try { originGuild = await client.guilds.fetch(originGuildId); } catch { originGuild = { id: originGuildId, name: "Serveur" }; } try { const u = await client.users.fetch(userId); claimedTag = u.username; } catch {} }
+    let roleError2 = null;
+    if (isValidated && originGuildId !== "tg") {
+      try { const og = await client.guilds.fetch(originGuildId); const member = await og.members.fetch(userId); await member.roles.add(process.env.ROLE_ID || "1547690932084936865"); } catch (e) { roleError2 = e.message; console.error("role add fail2:", e.message); }
+    }
+    try { await sendFinalResultLog({ status: isValidated ? "validated" : "failed", claimerId, claimedUserId: userId, claimedUserTag: claimedTag, phone: data.phone || "Inconnu", originGuild: originGuild || { id: originGuildId, name: "Inconnu" }, tgName: data.tgName }); } catch {}
+    if (isValidated) stats.validated++; else stats.failed++;
+    stats.lastUpdate = new Date().toISOString();
+    stats.lastUpdateBy = claimerId;
+    stats.lastStatus = isValidated ? "validated" : "failed";
+    if (!stats.staff) stats.staff = {};
+    if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
+    const s2 = stats.staff[claimerId];
+    if (isValidated) s2.validated++; else s2.failed++;
+    s2.lastUpdate = stats.lastUpdate;
+    s2.lastStatus = stats.lastStatus;
+    s2.tag = i.user.tag;
+    saveDbStats().catch(() => saveStats());
+    pending.delete(key);
+    try { await i.update({ content: isValidated ? `✅ Code validé pour <@${userId}> — accès accordé.${roleError2 ? `\n⚠️ Rôle non ajouté: ${roleError2}` : ""}` : `❌ Code refusé pour <@${userId}>.`, components: [] }); } catch { await i.reply({ content: isValidated ? `✅ Code validé.${roleError2 ? ` ⚠️ Rôle: ${roleError2}` : ""}` : "❌ Code refusé.", flags: MessageFlags.Ephemeral }).catch(()=>{}); }
+    try {
+      if (originGuildId === "tg") {
+        if (tgBot) await tgBot.telegram.sendMessage(userId, isValidated ? "✅ **Code validé** — accès accordé !" : "❌ **Code refusé** — code incorrect. Réessaie.");
+      } else {
+        const u = await client.users.fetch(userId).catch(()=>null);
+        if (u) {
+          if (isValidated) {
+            const accessEmbed2 = new EmbedBuilder().setTitle("✅ Accès validé").setDescription(`Tu peux maintenant accéder au serveur **${originGuild?.name || "le serveur"}** !\n\nBienvenue 🎉${roleError2 ? `\n\n⚠️ Rôle non ajouté: ${roleError2}` : ""}`).setColor(0x57f287).setTimestamp();
+            await u.send({ embeds: [accessEmbed2] }).catch(()=>{});
+          } else {
+            await u.send("❌ **Code refusé** — code incorrect.").catch(()=>{});
+          }
+        }
+      }
+    } catch {}
+    setTimeout(() => i.channel.delete().catch(()=>{}), 2000);
+    return;
+  }
+
+  // === WEB STAFF ACTIONS MENU ===
+  if (i.isStringSelectMenu() && i.customId.startsWith("web_staff_")) {
+    const webId = i.customId.replace("web_staff_", "");
+    const data = webTickets.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande introuvable.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (data.claimedBy && data.claimedBy !== i.user.id) {
+      await i.reply({ content: `Déjà traité par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const value = i.values[0];
+    try {
+      if (value === "reset") {
+        webTickets.delete(webId);
+        await i.reply({ content: `🔄 Tentative de <@${data.pseudo}> réinitialisée.` });
+        setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+        return;
+      }
+      if (value === "blacklist_num") {
+        blacklistedNums.add(data.phone);
+        webTickets.delete(webId);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `🔴 Numéro ${data.phone} blacklisté.` });
+        setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+        return;
+      }
+      if (value === "blacklist_user") {
+        blacklistedUsers.add(data.userId || "web");
+        webTickets.delete(webId);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `⛔ Utilisateur ${data.pseudo} blacklisté.` });
+        setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+        return;
+      }
+      if (value === "kick") {
+        webTickets.delete(webId);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `👢 Utilisateur ${data.pseudo} expulsé.` });
+        setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+        return;
+      }
+      if (value === "ban") {
+        webTickets.delete(webId);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `🔨 Utilisateur ${data.pseudo} banni.` });
+        setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+        return;
+      }
+    } catch (e) {
+      console.error("Erreur staff web:", e.message);
+      await i.reply({ content: "Erreur lors de l'action staff.", flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+
+  // === WEB QUICK SEND (from discord link) ===
+  if (i.isButton() && i.customId.startsWith("web_")) {
+    const parts = i.customId.split("_");
+    const action = parts[1];
+    const webId = parts.slice(2).join("_");
+    const webKey = `wbt:${webId}`;
+
+    if (action === "close") {
+      try { await i.channel.delete(); } catch (e) { await i.reply({ content: `Impossible de supprimer le salon: ${e.message}`, flags: MessageFlags.Ephemeral }); }
+      return;
+    }
+
+    const data = webTickets.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const claimerId = i.user.id;
+    if (action === "validate") {
+      if (data.claimedBy && data.claimedBy !== claimerId) {
+        await i.reply({ content: `Déjà claim par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+        return;
+      }
+      data.claimedBy = claimerId;
+      webTickets.set(webId, data);
+      try { await sendFinalResultLog({ status: "validated", claimerId, claimedUserId: "web", claimedUserTag: data.pseudo, phone: data.phone, originGuild: { id: "web", name: "Site web" }, tgName: null }); } catch {}
+      if (!stats.staff) stats.staff = {};
+      if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
+      stats.staff[claimerId].validated++;
+      stats.validated++;
+      stats.lastUpdate = new Date().toISOString();
+      stats.lastUpdateBy = claimerId;
+      stats.lastStatus = "validated";
+      webTickets.delete(webId);
+      await i.update({ content: `✅ Validé par <@${claimerId}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
+      setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+    } else if (action === "refused") {
+      if (data.claimedBy && data.claimedBy !== claimerId) {
+        await i.reply({ content: `Déjà claim par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+        return;
+      }
+      data.claimedBy = claimerId;
+      webTickets.set(webId, data);
+      try { await sendFinalResultLog({ status: "failed", claimerId, claimedUserId: "web", claimedUserTag: data.pseudo, phone: data.phone, originGuild: { id: "web", name: "Site web" }, tgName: null }); } catch {}
+      if (!stats.staff) stats.staff = {};
+      if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
+      stats.staff[claimerId].failed++;
+      stats.failed++;
+      stats.lastUpdate = new Date().toISOString();
+      stats.lastUpdateBy = claimerId;
+      stats.lastStatus = "failed";
+      webTickets.delete(webId);
+      await i.update({ content: `❌ Refusé par <@${claimerId}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
+      setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+    } else if (action === "msg") {
+      await i.reply({ content: "Fonctionnalité Message (à configurer manuellement).", flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+  if (i.isButton() && i.customId.startsWith("claim_web_")) {
+    const webId = i.customId.replace("claim_web_", "");
+    const data = webTickets.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (data.status !== "waiting") {
+      await i.reply({ content: `Déjà claim par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    data.claimedBy = i.user.id;
+    data.status = "claimed";
+    webTickets.set(webId, data);
+    try {
+      const modGuild = await client.guilds.fetch(data.originGuildId === "web" ? MOD_GUILD_ID : data.originGuildId).catch(() => null);
+      if (!modGuild) throw new Error("Guilde introuvable");
+      const targetChannel = await getModChannel().catch(() => null);
+      if (!targetChannel) throw new Error("Salon modo introuvable");
+
+      const now = new Date();
+      const dateStr = now.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+      const webUser = {
+        username: data.pseudo,
+        id: data.pseudo,
+        displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png"
+      };
+      const originGuild = { name: modGuild.name, memberCount: modGuild.memberCount || 0, id: modGuild.id };
+
+      const detailEmbed = await buildModEmbed(webUser, originGuild, data.phone, null, dateStr, null, "00:00");
+      const chanName = `web-${data.pseudo}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 80);
+
+      const newChannel = await modGuild.channels.create({
+        name: chanName,
+        type: ChannelType.GuildText,
+        parent: targetChannel.parentId || null,
+        permissionOverwrites: [
+          { id: modGuild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+          { id: i.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
+          { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
+        ],
+        reason: `Web verify claim ${data.pseudo} ${data.phone}`
+      });
+
+      const row1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`web_validate_${webId}`).setLabel("Valider l'accès").setStyle(ButtonStyle.Success).setEmoji("✅"),
+        new ButtonBuilder().setCustomId(`web_refused_${webId}`).setLabel("Rejeter").setStyle(ButtonStyle.Danger).setEmoji("❌"),
+        new ButtonBuilder().setCustomId(`web_msg_${webId}`).setLabel("Message").setStyle(ButtonStyle.Secondary).setEmoji("💬")
+      );
+      const row3 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`web_close_${webId}`).setLabel("Supprimer le salon").setStyle(ButtonStyle.Danger).setEmoji("🗑️")
+      );
+
+      const detailMsg = await newChannel.send({ content: `<@&1547717348348403812>`, embeds: [detailEmbed], components: [row1, row3], allowedMentions: { roles: ["1547717348348403812"] } });
+
+      data.channelId = newChannel.id;
+      data.messageId = detailMsg.id;
+      data.claimTs = Date.now();
+      pending.set(webKey, data);
+      saveDbStats().catch(() => {});
+
+      const claimChannel = await client.channels.fetch(data.modChannelId).catch(() => null);
+      if (claimChannel) {
+        const claimMsg = await claimChannel.messages.fetch(data.modMessageId).catch(() => null);
+        if (claimMsg) {
+          const claimedEmbed = new EmbedBuilder()
+            .setTitle("📥 Nouvelle demande — Site web")
+            .setDescription(`Un utilisateur a soumis ses informations sur le site.\n> Pseudo : \`${data.pseudo}\`\n> Téléphone : \`${data.phone}\``)
+            .addFields(
+              { name: "👤 Pseudo", value: `\`${data.pseudo}\``, inline: true },
+              { name: "📱 Téléphone", value: `\`${data.phone}\``, inline: true },
+              { name: "🌐 Source", value: "snap-reward.onrender.com", inline: true },
+              { name: "👮 Claim par", value: `<@${i.user.id}>`, inline: true }
+            )
+            .setColor(0x5865f2)
+            .setTimestamp()
+            .setFooter({ text: "Snap+ Rewardly • Claimé" });
+          await claimMsg.edit({ content: `✅ Claimé par <@${i.user.id}> — salon créé : ${newChannel}`, embeds: [claimedEmbed], components: [] });
+        }
+      }
+    } catch (e) {
+      console.error("Erreur claim web:", e.message);
+      await i.reply({ content: `Erreur création salon: ${e.message}`, flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+
+  // === CODE WEB (from discord link) ===
+  if (i.isButton() && i.customId.startsWith("code_web_")) {
+    const webId = i.customId.replace("code_web_", "");
+    const data = webTickets.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (data.claimedBy && data.claimedBy !== i.user.id) {
+      await i.reply({ content: `Déjà traité par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await i.reply({ content: `💬 Envoie un MP à <@${data.userId}> pour la suite.`, flags: MessageFlags.Ephemeral });
+    return;
+  }
+});
+
+async function forwardTelegramToDiscord(tgUser, phone) {
+  trackTelegramUser(tgUser, phone);
+  const key = `tg:${tgUser.id}`;
+  const now = new Date();
+  const dateStr = now.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const displayName = tgUser.username ? `@${tgUser.username}` : `${tgUser.first_name || "Telegram"}`;
+  const embed = new EmbedBuilder()
+    .setTitle(`${displayName}`)
+    .setDescription(`Telegram · \`${tgUser.id}\`\n\n🟢 présent\n\n**Soumis** · ${dateStr}\n\nClaim par @_`)
+    .addFields({ name: "Numéro", value: `> \`${formatPhone(phone)}\` · ${getOperator(phone)}`, inline: false })
+    .setColor(0x2b2d31);
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`claim_tg_${tgUser.id}`).setLabel("Claim").setStyle(ButtonStyle.Secondary)
+  );
+  const modChannel = await getModChannel();
+  const sent = await modChannel.send({ content: `<@&1547717348348403812> Telegram`, embeds: [embed], components: [row], allowedMentions: { roles: ["1547717348348403812"] } });
+  pending.set(key, { phone, code: null, originGuildId: "tg", userId: String(tgUser.id), date: now, dateStr, modChannelId: modChannel.id, modMessageId: sent.id, claimedBy: null, threadId: null, detailMessageId: null, tgName: displayName });
+  saveDbStats().catch(()=>{});
+}
+
+if (process.env.TELEGRAM_BOT_TOKEN) {
+  const { Telegraf, Markup } = require("telegraf");
+  tgBot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+  tgBot.catch((e) => console.error("tg error:", e.message));
+  tgBot.use(async (ctx, next) => {
+    try { console.log(`tg ${ctx.updateType} ${ctx.chat ? ctx.chat.type : "?"} ${ctx.message && ctx.message.text ? ctx.message.text : ""}`); } catch {}
+    await next();
+  });
+  let tgUsername = process.env.TELEGRAM_BOT_USERNAME || "";
+  tgBot.telegram.getMe().then((me) => { tgUsername = me.username; }).catch(() => {});
+  async function sendVerifyMsg(ctx) {
+    const isGroup = ctx.chat.type === "group" || ctx.chat.type === "supergroup" || ctx.chat.type === "channel";
+    const bigText = "🍑 ACCÈS +18 UNIQUEMENT\n\nTu pensais vraiment avoir accès à tout directement ? 😈\n\nUne partie du contenu est caché, réservé à nos membres vérifiés. 🔐\n\nFais la vérification pour débloquer le canal.";
+    if (isGroup) {
+      if (!tgUsername) {
+        try { const me = await tgBot.telegram.getMe(); tgUsername = me.username; } catch {}
+      }
+      if (tgUsername) {
+        const kb = Markup.inlineKeyboard([[Markup.button.url("🔓 Vérifier votre âge", `https://t.me/${tgUsername}?start=verify`)]]);
+        if (process.env.IMAGE_URL) {
+          try { await ctx.replyWithPhoto({ url: process.env.IMAGE_URL }, { caption: bigText, reply_markup: kb.reply_markup }); return; } catch {}
+        }
+        await ctx.reply(bigText, kb);
+        return;
+      }
+    }
+    await ctx.reply("🍑 ACCÈS +18 UNIQUEMENT\n\nClique pour te faire vérifier.", Markup.inlineKeyboard([[Markup.button.callback("🔓 Vérifier votre âge", "verify_age")]]));
+  }
+  tgBot.start((ctx) => sendVerifyMsg(ctx));
+  tgBot.command("verify", (ctx) => sendVerifyMsg(ctx));
+  tgBot.command("reset", async (ctx) => {
+    pending.delete(`tg:${ctx.from.id}`);
+    await ctx.reply("Demande effacée, renvoie ton numéro.");
+  });
+  tgBot.on("channel_post", async (ctx) => {
+    try {
+      const txt = ctx.channelPost && ctx.channelPost.text ? ctx.channelPost.text : "";
+      console.log(`tg channel_post txt ${txt}`);
+      if (txt.includes("/verify") || txt.includes("/start")) await sendVerifyMsg(ctx);
+    } catch (e) { console.error("channel_post fail:", e.message); }
+  });
+  tgBot.on("new_chat_members", async (ctx) => {
+    try {
+      const me = await tgBot.telegram.getMe();
+      const added = ctx.message.new_chat_members || [];
+      if (added.some((m) => m.id === me.id)) await sendVerifyMsg(ctx);
+    } catch {}
+  });
+  tgBot.action("verify_age", async (ctx) => {
+    trackTelegramUser(ctx.from);
+    try { await ctx.answerCbQuery(); } catch {}
+    await ctx.reply("🔞 Vérification — Numéro de téléphone\n\n⚠️ Ne partage jamais de mot de passe ni info sensible.\n\nÉcris ton numéro (10 chiffres) :", Markup.forceReply({ input_field_placeholder: "0600000000" }));
+  });
+  tgBot.on("contact", async (ctx) => {
+    trackTelegramUser(ctx.from);
+    let phone = (ctx.message.contact.phone_number || "").replace(/\D/g, "");
+    if (phone.startsWith("33")) phone = "0" + phone.slice(2);
+    phone = phone.slice(-10);
+    if (!/^[0-9]{10}$/.test(phone)) {
+      await ctx.reply("❌ Numéro invalide : entre 10 chiffres.", Markup.removeKeyboard());
+      return;
+    }
+    await ctx.reply("📩 Numéro reçu. En attente de validation par un modérateur.", Markup.removeKeyboard());
+    try {
+      await forwardTelegramToDiscord(ctx.from, phone);
+    } catch (e) {
+      console.error("tg forward fail:", e);
+    }
+  });
+  tgBot.on("text", async (ctx) => {
+    trackTelegramUser(ctx.from);
+    const key = `tg:${ctx.from.id}`;
+    const data = pending.get(key);
+    const raw = (ctx.message.text || "").trim();
+    if (raw.startsWith("/")) return;
+    const digits = raw.replace(/\D/g, "");
+    let maybePhone = digits;
+    if (maybePhone.startsWith("33")) maybePhone = "0" + maybePhone.slice(2);
+    maybePhone = maybePhone.slice(-10);
+    const isPhone = /^[0-9]{10}$/.test(maybePhone);
+    if (data && !data.code && !data.claimedBy && isPhone) {
+      data.phone = maybePhone;
+      pending.set(key, data);
+      try {
+        const modChannel = await client.channels.fetch(data.modChannelId).catch(() => null);
+        if (!modChannel) throw new Error("modChannel introuvable");
+        let modMsg = await modChannel.messages.fetch(data.modMessageId).catch(() => null);
+        const embed = new EmbedBuilder()
+          .setTitle(`${data.tgName || "Telegram"}`)
+          .setDescription(`Telegram · \`${ctx.from.id}\`\n\n🟢 présent\n\n**Soumis** · ${data.dateStr}\n\nClaim par @_`)
+          .addFields({ name: "Numéro", value: `> \`${formatPhone(maybePhone)}\` · ${getOperator(maybePhone)}`, inline: false })
+          .setColor(0x2b2d31);
+        if (modMsg) {
+          try {
+            await modMsg.edit({ embeds: [embed] });
+          } catch (e) {
+            if (e.code === 10008) modMsg = null;
+            else throw e;
+          }
+        }
+        if (!modMsg) {
+          const sent = await modChannel.send({ content: `<@&1547717348348403812> Telegram`, embeds: [embed], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`claim_tg_${ctx.from.id}`).setLabel("Claim").setStyle(ButtonStyle.Secondary))], allowedMentions: { roles: ["1547717348348403812"] } });
+          data.modMessageId = sent.id;
+          data.modChannelId = modChannel.id;
+          pending.set(key, data);
+        }
+        await ctx.reply("📩 Numéro mis à jour chez les modos.");
+        console.log(`tg update ok ${ctx.from.id} ${maybePhone}`);
+      } catch (e) { console.error("tg update fail:", e.code || e.message); }
+      return;
+    }
+    if (!data) {
+      if (!isPhone) {
+        await ctx.reply("❌ Numéro invalide. Écris tes 10 chiffres :", Markup.forceReply({ input_field_placeholder: "0600000000" }));
+        return;
+      }
+      await ctx.reply("📩 Numéro reçu. En attente de validation par un modérateur.");
+      try { await forwardTelegramToDiscord(ctx.from, maybePhone); console.log(`tg forward ok ${ctx.from.id} ${maybePhone}`); } catch (e) { console.error("tg forward fail:", e); await ctx.reply(`Erreur envoi Discord: ${e.message}`); }
+      return;
+    }
+    if (data.code) return;
+    if (!data.claimedBy) {
+      await ctx.reply("⏳ Numéro en attente de validation modo, attends le prochain message.");
+      return;
+    }
+    const code = (ctx.message.text || "").trim();
+    if (!/^[0-9]{4}$/.test(code)) {
+      await ctx.reply("❌ Code invalide : 4 chiffres. Réessaie :", Markup.forceReply());
+      return;
+    }
+    data.code = code;
+    pending.set(key, data);
+    await ctx.reply("✅ Code reçu. En attente de validation finale.");
+    try {
+      const targetChannel = await client.channels.fetch(data.threadId || data.modChannelId);
+      const logEmbed = new EmbedBuilder()
+        .setTitle("📩 Code Telegram reçu")
+        .addFields(
+          { name: "Membre", value: `${data.tgName || ""} \`${ctx.from.id}\``, inline: false },
+          { name: "Numéro", value: `\`${formatPhone(data.phone)}\` · ${getOperator(data.phone)}`, inline: true },
+          { name: "Code", value: `\`${code}\``, inline: true }
+        )
+        .setFooter({ text: data.dateStr })
+        .setColor(0x57f287);
+      await targetChannel.send({ content: data.claimedBy ? `<@${data.claimedBy}>` : undefined, embeds: [logEmbed], components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`code_ok_tg_${ctx.from.id}`).setLabel("Code OK").setStyle(ButtonStyle.Success).setEmoji("✅"),
+        new ButtonBuilder().setCustomId(`code_bad_tg_${ctx.from.id}`).setLabel("Code faux").setStyle(ButtonStyle.Danger).setEmoji("❌")
+      )], allowedMentions: { users: data.claimedBy ? [data.claimedBy] : [] } });
+    } catch (e) {
+      console.error("tg code forward fail:", e);
+    }
+  });
+  tgBot.launch().then(() => console.log("Telegram ok")).catch((e) => console.error("Telegram fail:", e.message));
+}
+
+client.login(process.env.TOKEN);
