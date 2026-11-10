@@ -15,6 +15,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 requests_db = {}
 history_log = []
 blocked_phones = set()
+blocked_users = set()
 
 
 def norm_phone(p):
@@ -22,13 +23,14 @@ def norm_phone(p):
 
 
 def load_data():
-    global requests_db, history_log, blocked_phones
+    global requests_db, history_log, blocked_phones, blocked_users
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             d = json.load(f)
         requests_db = {k: v for k, v in d.get("requests", {}).items()}
         history_log = list(d.get("history", []))
         blocked_phones = set(d.get("blocked_phones", []))
+        blocked_users = set(d.get("blocked_users", []))
         print("[server] donnees chargees (%d demandes, %d bloques)" % (len(requests_db), len(blocked_phones)))
     except Exception:
         pass
@@ -41,6 +43,7 @@ def persist():
                 "requests": requests_db,
                 "history": history_log[-200:],
                 "blocked_phones": sorted(blocked_phones),
+                "blocked_users": sorted(blocked_users),
             }, f, ensure_ascii=False)
     except Exception as e:
         print("[server] echec sauvegarde: %s" % e)
@@ -89,11 +92,13 @@ def tg_notify_request(data, rid):
         "Pseudo : %s\n"
         "Compte : %s\n"
         "Numero : <code>%s</code>\n"
+        "Operateur : %s\n"
         "ID : <code>%s</code>"
     ) % (
         str(data.get("pseudo") or "-"),
         str(data.get("handle") or "-"),
         format_phone(data.get("phone")) or "-",
+        str(data.get("operator") or "-"),
         rid[:8].upper(),
     )
     tg_send(text)
