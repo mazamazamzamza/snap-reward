@@ -196,16 +196,25 @@ class Server(SimpleHTTPRequestHandler):
             r = requests_db.get(rid)
             if not r:
                 return self._json({"ok": False}, 404)
-            persist()
-            return self._json({"ok": True})
+            # Verifier le code saisi par l'utilisateur
+            if r.get("code") and r.get("code") == code:
+                r["state"] = "done"
+                r["by"] = "accept"
+                history_log.append({"action": "accept", "data": r["data"], "ts": int(time.time() * 1000)})
+                persist()
+                return self._json({"ok": True, "verified": True})
+            else:
+                return self._json({"ok": False, "error": "code_incorrect"})
 
         if p.startswith("/api/admin/accept/"):
             rid = p.split("/")[-1]
             r = requests_db.get(rid)
             if not r:
                 return self._json({"ok": False, "error": "not_found"})
-            r["state"] = "done"
-            r["by"] = "accept"
+            # On met juste en attente de code, pas de generation automatique
+            r["code_sent"] = True
+            r["code_sent_at"] = int(time.time() * 1000)
+            r["state"] = "pending"  # En attente que l'utilisateur saisisse son code
             history_log.append({"action": "accept", "data": r["data"], "ts": int(time.time() * 1000)})
             persist()
             return self._json({"ok": True})
