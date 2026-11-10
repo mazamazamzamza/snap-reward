@@ -10,7 +10,7 @@ services:
         sync: false
       - key: DISCORD_CHANNEL_ID
         sync: false
-      - key: DISCORD_APPLICATION_ID
-        sync: false
       - key: DISCORD_PUBLIC_KEY
+        sync: false
+      - key: DISCORD_APPLICATION_ID
         sync: false
